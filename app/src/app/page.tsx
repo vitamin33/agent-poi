@@ -4,12 +4,11 @@ import { useEffect, useState, useCallback } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import {
-  getAgentPDA,
   AgentData,
   RegistryData,
   isAnchorWallet,
   fetchRegistryState,
-  fetchAgentAccount,
+  fetchAllAgents,
 } from "@/lib/program";
 import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
@@ -65,7 +64,12 @@ export default function Home() {
     }
 
     try {
-      const registry = await fetchRegistryState(connection);
+      // Fetch registry state and all agents in parallel
+      const [registry, allAgents] = await Promise.all([
+        fetchRegistryState(connection),
+        fetchAllAgents(connection),
+      ]);
+
       if (!registry) {
         console.log("Registry not initialized yet");
         setLoading(false);
@@ -73,47 +77,9 @@ export default function Home() {
       }
       setRegistryInfo(registry);
 
-      const totalAgents = registry.totalAgents.toNumber();
-
-      // Parallelize admin agent fetches with Promise.allSettled
-      const adminAgentPromises = Array.from(
-        { length: Math.min(totalAgents, 50) },
-        (_, i) => {
-          const [agentPda] = getAgentPDA(registry.admin, i);
-          return fetchAgentAccount(connection, agentPda);
-        }
-      );
-
-      // Parallelize user agent fetches if different from admin
-      const userAgentPromises = wallet.publicKey && !wallet.publicKey.equals(registry.admin)
-        ? Array.from({ length: 10 }, (_, i) => {
-            const [agentPda] = getAgentPDA(wallet.publicKey!, i);
-            return fetchAgentAccount(connection, agentPda);
-          })
-        : [];
-
-      // Execute all fetches in parallel
-      const [adminResults, userResults] = await Promise.all([
-        Promise.allSettled(adminAgentPromises),
-        Promise.allSettled(userAgentPromises),
-      ]);
-
-      // Collect successful admin agents
-      const fetchedAgents: AgentData[] = adminResults
-        .filter((r): r is PromiseFulfilledResult<AgentData | null> => r.status === "fulfilled" && r.value !== null)
-        .map(r => r.value!);
-
-      // Add user agents that aren't duplicates
-      userResults.forEach(r => {
-        if (r.status === "fulfilled" && r.value !== null) {
-          if (!fetchedAgents.find(a => a.agentId.eq(r.value!.agentId))) {
-            fetchedAgents.push(r.value);
-          }
-        }
-      });
-
-      fetchedAgents.sort((a, b) => b.reputationScore - a.reputationScore);
-      setAgents(fetchedAgents);
+      // Sort agents by reputation score (highest first)
+      allAgents.sort((a, b) => b.reputationScore - a.reputationScore);
+      setAgents(allAgents);
     } catch (err: unknown) {
       console.error("Error loading agents:", err instanceof Error ? err.message : err);
     } finally {

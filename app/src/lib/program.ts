@@ -301,8 +301,20 @@ export async function fetchAgentAccount(
       return null;
     }
 
+    return parseAgentAccountData(accountInfo.data);
+  } catch (error) {
+    console.error("Error fetching agent:", error);
+    return null;
+  }
+}
+
+/**
+ * Parse agent account from raw data buffer
+ */
+function parseAgentAccountData(rawData: Buffer): AgentData | null {
+  try {
     // Skip 8-byte discriminator
-    const data = accountInfo.data.slice(8);
+    const data = rawData.slice(8);
 
     // Parse agent account manually
     let offset = 0;
@@ -368,8 +380,55 @@ export async function fetchAgentAccount(
       bump,
     };
   } catch (error) {
-    console.error("Error fetching agent:", error);
+    console.error("Error parsing agent data:", error);
     return null;
+  }
+}
+
+/**
+ * AgentAccount discriminator (first 8 bytes)
+ * From IDL: accounts[0].discriminator for AgentAccount
+ */
+const AGENT_ACCOUNT_DISCRIMINATOR = Buffer.from([
+  241, 119, 69, 140, 233, 9, 112, 50
+]);
+
+/**
+ * Fetch ALL agent accounts from the program using getProgramAccounts
+ * This returns all agents regardless of owner
+ */
+export async function fetchAllAgents(
+  connection: Connection
+): Promise<AgentData[]> {
+  try {
+    // Use dataSize filter to match AgentAccount size
+    // This is more reliable than memcmp with discriminator
+    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+      filters: [
+        {
+          memcmp: {
+            offset: 0,
+            bytes: Buffer.from(AGENT_ACCOUNT_DISCRIMINATOR).toString("base64"),
+            encoding: "base64",
+          },
+        },
+      ],
+    });
+
+    const agents: AgentData[] = [];
+    for (const { account } of accounts) {
+      const parsed = parseAgentAccountData(account.data as Buffer);
+      if (parsed) {
+        agents.push(parsed);
+      }
+    }
+
+    console.log(`Fetched ${agents.length} agents from on-chain`);
+    return agents;
+  } catch (error) {
+    console.error("Error fetching all agents:", error);
+    // Fallback: return empty array, don't break the app
+    return [];
   }
 }
 
