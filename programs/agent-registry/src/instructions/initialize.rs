@@ -23,6 +23,8 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
 
     registry.admin = ctx.accounts.admin.key();
     registry.total_agents = 0;
+    registry.collection = Pubkey::default();
+    registry.collection_initialized = false;
     registry.bump = ctx.bumps.registry;
 
     msg!("Registry initialized with admin: {}", registry.admin);

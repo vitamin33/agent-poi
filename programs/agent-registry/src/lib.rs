@@ -17,7 +17,14 @@ pub mod agent_registry {
         instructions::initialize::handler(ctx)
     }
 
-    /// Register a new AI agent
+    /// Set the NFT collection address for agent identities (admin only, one-time)
+    /// The collection itself is created off-chain using Metaplex SDK
+    pub fn create_collection(ctx: Context<CreateCollection>) -> Result<()> {
+        instructions::create_collection::handler(ctx)
+    }
+
+    /// Register a new AI agent with identity NFT reference
+    /// The NFT should be created off-chain first using Metaplex SDK
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
         name: String,
@@ -47,5 +54,22 @@ pub mod agent_registry {
         delta: i32,
     ) -> Result<()> {
         instructions::update_reputation::handler(ctx, delta)
+    }
+
+    /// Create a new challenge for an agent
+    pub fn create_challenge(
+        ctx: Context<CreateChallenge>,
+        question: String,
+        expected_hash: String,
+    ) -> Result<()> {
+        instructions::create_challenge::handler(ctx, question, expected_hash)
+    }
+
+    /// Submit a response to a challenge (verifies and updates reputation)
+    pub fn submit_response(
+        ctx: Context<SubmitResponse>,
+        response_hash: String,
+    ) -> Result<()> {
+        instructions::submit_response::handler(ctx, response_hash)
     }
 }

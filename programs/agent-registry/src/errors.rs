@@ -25,4 +25,28 @@ pub enum RegistryError {
 
     #[msg("Registry is full")]
     RegistryFull,
+
+    #[msg("Collection has already been initialized")]
+    CollectionAlreadyInitialized,
+
+    #[msg("Collection must be initialized before registering agents")]
+    CollectionNotInitialized,
+
+    #[msg("Question is too long (max 256 characters)")]
+    QuestionTooLong,
+
+    #[msg("Expected hash must be 64 characters (SHA256 hex)")]
+    InvalidExpectedHash,
+
+    #[msg("Response hash must be 64 characters (SHA256 hex)")]
+    InvalidResponseHash,
+
+    #[msg("Challenge has expired")]
+    ChallengeExpired,
+
+    #[msg("Challenge is not pending")]
+    ChallengeNotPending,
+
+    #[msg("Challenge does not match the agent")]
+    ChallengeMismatch,
 }

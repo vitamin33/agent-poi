@@ -1,0 +1,17 @@
+# Solana client
+solana>=0.34.0
+solders>=0.21.0
+anchorpy>=0.20.0
+
+# Model handling
+llama-cpp-python>=0.2.0
+
+# Web server for challenge API
+fastapi>=0.109.0
+uvicorn>=0.27.0
+httpx>=0.26.0
+
+# Utilities
+pydantic>=2.0
+python-dotenv>=1.0.0
+click>=8.1.0

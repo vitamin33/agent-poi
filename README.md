@@ -96,21 +96,51 @@ assisterr-agent-hackathon/
 └── docs/                  # Documentation
 ```
 
+## Program ID
+
+```
+EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
+```
+
+Deployed on Solana Devnet
+
 ## Quick Start
 
-```bash
-# Prerequisites
-solana --version  # 1.18+
-anchor --version  # 0.30+
-node --version    # 20+
+### 1. Build & Deploy Program
 
-# Setup
-npm install
+```bash
+# Install Anchor CLI
+cargo install --git https://github.com/coral-xyz/anchor anchor-cli
+
+# Build the program
 anchor build
+
+# Deploy to devnet
+solana config set --url devnet
+solana airdrop 2
 anchor deploy --provider.cluster devnet
 
-# Run agent
-cd agent && python -m sentinel
+# Run tests (9 passing)
+anchor test
+```
+
+### 2. Start Dashboard
+
+```bash
+cd app
+npm install
+npm run dev
+```
+
+Open http://localhost:3000
+
+### 3. Run Demo Agent (Optional)
+
+```bash
+cd agent
+pip install -r requirements.txt
+cp .env.example .env
+python main.py
 ```
 
 ## Hackathon Submission

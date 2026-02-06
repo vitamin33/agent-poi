@@ -10,7 +10,8 @@ pub struct RegisterAgent<'info> {
     #[account(
         mut,
         seeds = [RegistryState::SEED_PREFIX],
-        bump = registry.bump
+        bump = registry.bump,
+        constraint = registry.collection_initialized @ RegistryError::CollectionNotInitialized
     )]
     pub registry: Account<'info, RegistryState>,
 
@@ -26,6 +27,10 @@ pub struct RegisterAgent<'info> {
         bump
     )]
     pub agent: Account<'info, AgentAccount>,
+
+    /// CHECK: The NFT asset account (created off-chain via Metaplex SDK)
+    /// In production, verify this belongs to the collection and is owned by the signer
+    pub nft_mint: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -60,6 +65,7 @@ pub fn handler(
     agent.verified = false;
     agent.created_at = clock.unix_timestamp;
     agent.updated_at = clock.unix_timestamp;
+    agent.nft_mint = ctx.accounts.nft_mint.key();
     agent.bump = ctx.bumps.agent;
 
     // Increment total agents
@@ -67,10 +73,10 @@ pub fn handler(
         .ok_or(RegistryError::RegistryFull)?;
 
     msg!(
-        "Agent registered: id={}, name={}, owner={}",
+        "Agent registered: id={}, name={}, nft={}",
         agent.agent_id,
         name,
-        agent.owner
+        agent.nft_mint
     );
 
     Ok(())

@@ -40,6 +40,9 @@ pub struct AgentAccount {
     /// Unix timestamp when agent was last updated
     pub updated_at: i64,
 
+    /// NFT asset pubkey (Metaplex Core identity NFT)
+    pub nft_mint: Pubkey,
+
     /// Bump seed for PDA derivation
     pub bump: u8,
 }
