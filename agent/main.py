@@ -41,7 +41,7 @@ from config import (
     IDL_PATH,
 )
 from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, SLMEvaluator, EvaluationDomain
-from solana import AgentRegistryClient
+from solana_client import AgentRegistryClient
 
 # Agent Configuration
 AGENT_VERSION = "1.1.0"  # Updated for cross-agent challenges

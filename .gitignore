@@ -28,6 +28,8 @@ out/
 test-ledger/
 *.so
 keypair.json
+agent/wallets/
+CREDENTIALS.md
 
 # Logs
 *.log
