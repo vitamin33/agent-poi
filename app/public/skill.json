@@ -160,6 +160,11 @@
       "accounts": ["agent_owner", "agent", "challenge"],
       "args": ["response_hash"]
     },
+    "expire_challenge": {
+      "description": "Expire a challenge that was not responded to in time (permissionless)",
+      "accounts": ["caller", "registry", "agent", "challenge"],
+      "args": []
+    },
     "verify_agent": {
       "description": "Admin verification of agent identity",
       "accounts": ["admin", "agent", "registry_state"],
