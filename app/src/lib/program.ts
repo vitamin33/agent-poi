@@ -138,6 +138,46 @@ export interface RegistryData {
   bump: number;
 }
 
+export interface ChallengeData {
+  agent: PublicKey;
+  challenger: PublicKey;
+  question: string;
+  expectedHash: string;
+  status: { pending: object } | { passed: object } | { failed: object } | { expired: object };
+  createdAt: BN;
+  expiresAt: BN;
+  respondedAt: BN | null;
+  bump: number;
+}
+
+export type ChallengeStatus = "pending" | "passed" | "failed" | "expired";
+
+/**
+ * Parse challenge status from on-chain data
+ */
+export function parseChallengeStatus(status: ChallengeData["status"]): ChallengeStatus {
+  if ("pending" in status) return "pending";
+  if ("passed" in status) return "passed";
+  if ("failed" in status) return "failed";
+  return "expired";
+}
+
+/**
+ * Generate SHA256 hash for challenge answer (client-side)
+ * Uses Web Crypto API for browser compatibility
+ */
+export async function hashAnswer(answer: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(answer);
+  // Cast to satisfy strict TypeScript - TextEncoder always returns ArrayBuffer-backed Uint8Array
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    new Uint8Array(data).buffer as ArrayBuffer
+  );
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /**
  * Type guard to check if a wallet has the required properties for AnchorWallet
  */
@@ -170,7 +210,7 @@ function createProgram() {
     account: {
       registryState: { fetch: (address: PublicKey) => Promise<RegistryData> };
       agentAccount: { fetch: (address: PublicKey) => Promise<AgentData> };
-      challenge: { fetch: (address: PublicKey) => Promise<unknown> };
+      challenge: { fetch: (address: PublicKey) => Promise<ChallengeData> };
     };
   };
 }

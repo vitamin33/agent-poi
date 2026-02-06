@@ -72,4 +72,26 @@ pub mod agent_registry {
     ) -> Result<()> {
         instructions::submit_response::handler(ctx, response_hash)
     }
+
+    // ============================================
+    // SentinelAgent Security Layer Instructions
+    // ============================================
+
+    /// Log an audit entry for an agent (SentinelAgent)
+    /// Creates immutable on-chain audit trail for compliance
+    pub fn log_audit(
+        ctx: Context<LogAudit>,
+        action_type: state::ActionType,
+        context_risk: u8,
+        details_hash: String,
+    ) -> Result<()> {
+        instructions::log_audit::handler(ctx, action_type, context_risk, details_hash)
+    }
+
+    /// Get audit status for an agent (view function)
+    pub fn get_audit_status(
+        ctx: Context<GetAuditStatus>,
+    ) -> Result<instructions::log_audit::AuditStatusResponse> {
+        instructions::log_audit::get_audit_status(ctx)
+    }
 }

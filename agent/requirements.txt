@@ -1,17 +1,24 @@
-# Solana client
+# Assisterr Agent Proof-of-Intelligence Demo
+# Python 3.11+ required
+
+# Solana integration
 solana>=0.34.0
 solders>=0.21.0
 anchorpy>=0.20.0
 
-# Model handling
-llama-cpp-python>=0.2.0
-
-# Web server for challenge API
+# Web server for challenge API (A2A communication)
 fastapi>=0.109.0
-uvicorn>=0.27.0
+uvicorn[standard]>=0.27.0
 httpx>=0.26.0
 
-# Utilities
+# Data validation
 pydantic>=2.0
+pydantic-settings>=2.1.0
+
+# Utilities
 python-dotenv>=1.0.0
 click>=8.1.0
+
+# Optional: Real LLM inference (uncomment for production)
+# llama-cpp-python>=0.2.0
+# openai>=1.10.0

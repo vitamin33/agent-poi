@@ -49,4 +49,14 @@ pub enum RegistryError {
 
     #[msg("Challenge does not match the agent")]
     ChallengeMismatch,
+
+    // SentinelAgent Audit Errors
+    #[msg("Details hash must be 64 hex characters (SHA256)")]
+    InvalidDetailsHash,
+
+    #[msg("Risk score must be 0-100")]
+    InvalidRiskScore,
+
+    #[msg("Audit summary not found for this agent")]
+    AuditSummaryNotFound,
 }

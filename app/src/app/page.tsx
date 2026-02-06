@@ -14,6 +14,7 @@ import {
 } from "@/lib/program";
 import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
+import { SecurityDashboard } from "@/components/SecurityDashboard";
 
 export default function Home() {
   const { connection } = useConnection();
@@ -193,8 +194,16 @@ export default function Home() {
                 key={agent.agentId.toString()}
                 agent={agent}
                 rank={idx + 1}
+                onChallengeCreated={loadAgents}
               />
             ))}
+          </div>
+        )}
+
+        {/* Security Dashboard - SentinelAgent Layer */}
+        {wallet.publicKey && agents.length > 0 && (
+          <div className="mt-12">
+            <SecurityDashboard agents={agents} />
           </div>
         )}
       </main>
