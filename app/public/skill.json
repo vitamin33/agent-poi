@@ -1,0 +1,211 @@
+{
+  "name": "Agent Proof-of-Intelligence",
+  "version": "1.0.0",
+  "description": "On-chain agent identity verification with challenge-response system and SLM evaluation benchmarks. Proves AI agents are who they claim to be through cryptographic model hashing and domain-specific intelligence tests.",
+  "author": "Assisterr",
+  "license": "MIT",
+  "repository": "https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon",
+
+  "solana": {
+    "program_id": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
+    "network": "devnet",
+    "rpc_url": "https://api.devnet.solana.com"
+  },
+
+  "capabilities": [
+    "agent_registration",
+    "identity_verification",
+    "challenge_response",
+    "slm_evaluation",
+    "reputation_tracking",
+    "audit_trail",
+    "nft_identity"
+  ],
+
+  "api": {
+    "base_url": "http://localhost:8000",
+    "version": "v1",
+    "endpoints": {
+      "status": {
+        "method": "GET",
+        "path": "/status",
+        "description": "Get agent status including reputation score and verification status",
+        "response": {
+          "name": "string",
+          "model_hash": "string",
+          "capabilities": "string",
+          "agent_id": "number",
+          "reputation_score": "number",
+          "challenges_passed": "number",
+          "challenges_failed": "number",
+          "verified": "boolean"
+        }
+      },
+      "health": {
+        "method": "GET",
+        "path": "/health",
+        "description": "Health check endpoint for monitoring",
+        "response": {
+          "status": "string",
+          "agent": "string",
+          "connected_to_solana": "boolean",
+          "registered_on_chain": "boolean",
+          "agentic_mode": "boolean"
+        }
+      },
+      "activity": {
+        "method": "GET",
+        "path": "/activity",
+        "description": "Get agent activity log showing autonomous actions",
+        "response": {
+          "agent_name": "string",
+          "auto_response_enabled": "boolean",
+          "poll_interval_seconds": "number",
+          "total_activities": "number",
+          "recent_activities": "array"
+        }
+      },
+      "challenge": {
+        "method": "POST",
+        "path": "/challenge",
+        "description": "Submit a challenge question for the agent to answer",
+        "request": {
+          "question": "string",
+          "expected_hash": "string (SHA256)",
+          "challenger": "string (Solana pubkey)"
+        },
+        "response": {
+          "answer": "string",
+          "answer_hash": "string",
+          "matches": "boolean"
+        }
+      },
+      "challenge_submit": {
+        "method": "POST",
+        "path": "/challenge/submit",
+        "description": "Submit challenge response on-chain with transaction",
+        "request": {
+          "question": "string",
+          "expected_hash": "string",
+          "challenger": "string"
+        },
+        "response": {
+          "answer": "string",
+          "answer_hash": "string",
+          "tx": "string (transaction signature)",
+          "new_reputation": "number"
+        }
+      },
+      "evaluate_domains": {
+        "method": "GET",
+        "path": "/evaluate/domains",
+        "description": "List available SLM evaluation domains",
+        "response": {
+          "domains": ["defi", "solana", "security"],
+          "passing_score": 60.0,
+          "questions_per_domain": 5
+        }
+      },
+      "evaluate_questions": {
+        "method": "GET",
+        "path": "/evaluate/{domain}/questions",
+        "description": "Get questions for a specific evaluation domain",
+        "params": {
+          "domain": "string (defi|solana|security)"
+        },
+        "response": {
+          "domain": "string",
+          "questions": "array",
+          "passing_score": "number"
+        }
+      },
+      "evaluate": {
+        "method": "POST",
+        "path": "/evaluate/{domain}",
+        "description": "Run SLM evaluation benchmark for a domain",
+        "params": {
+          "domain": "string (defi|solana|security)"
+        },
+        "request": {
+          "domain": "string",
+          "answers": "object (optional, question_id -> answer)"
+        },
+        "response": {
+          "domain": "string",
+          "questions_total": "number",
+          "questions_correct": "number",
+          "score": "number (0-100)",
+          "passed": "boolean",
+          "time_taken_ms": "number",
+          "breakdown": "object",
+          "result_hash": "string"
+        }
+      }
+    }
+  },
+
+  "on_chain_instructions": {
+    "register_agent": {
+      "description": "Register a new AI agent on-chain with model hash verification",
+      "accounts": ["owner", "agent_account", "registry_state", "system_program"],
+      "args": ["agent_id", "name", "model_hash", "capabilities"]
+    },
+    "create_challenge": {
+      "description": "Create a challenge for an agent to prove their identity",
+      "accounts": ["challenger", "agent", "challenge", "system_program"],
+      "args": ["question", "expected_hash"]
+    },
+    "submit_response": {
+      "description": "Submit response to a challenge (affects reputation)",
+      "accounts": ["agent_owner", "agent", "challenge"],
+      "args": ["response_hash"]
+    },
+    "verify_agent": {
+      "description": "Admin verification of agent identity",
+      "accounts": ["admin", "agent", "registry_state"],
+      "args": []
+    },
+    "log_audit": {
+      "description": "Log an audit entry for SentinelAgent security monitoring",
+      "accounts": ["actor", "agent", "audit_summary", "audit_entry", "system_program"],
+      "args": ["action_type", "context_risk", "details_hash"]
+    }
+  },
+
+  "evaluation_domains": {
+    "defi": {
+      "description": "DeFi knowledge: AMMs, yield farming, impermanent loss, flash loans",
+      "questions": 5,
+      "passing_score": 60
+    },
+    "solana": {
+      "description": "Solana expertise: PDAs, CPIs, token programs, rent exemption, Anchor",
+      "questions": 5,
+      "passing_score": 60
+    },
+    "security": {
+      "description": "Security awareness: rug pulls, honeypots, reentrancy, front-running",
+      "questions": 5,
+      "passing_score": 60
+    }
+  },
+
+  "integration": {
+    "wallet_adapter": true,
+    "anchor_version": "0.32.0",
+    "supported_wallets": ["Phantom", "Solflare", "Backpack"],
+    "typescript_sdk": "Coming soon",
+    "python_sdk": "agent/solana/client.py"
+  },
+
+  "compliance": {
+    "eu_ai_act": true,
+    "audit_trail": "Immutable on-chain audit logs via SentinelAgent",
+    "transparency": "All agent actions logged with cryptographic proofs"
+  },
+
+  "contact": {
+    "github": "https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon",
+    "hackathon": "https://colosseum.com/agent-hackathon"
+  }
+}
