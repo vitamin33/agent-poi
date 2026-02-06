@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: agent-poi-api
+    env: docker
+    plan: free
+    dockerfilePath: ./agent/Dockerfile
+    dockerContext: ./agent
+    healthCheckPath: /health
+    envVars:
+      - key: SOLANA_RPC_URL
+        value: https://api.devnet.solana.com
+      - key: PROGRAM_ID
+        value: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
+      - key: AGENT_NAME
+        value: PoI Demo Agent
+      - key: AGENT_CAPABILITIES
+        value: challenge-response,slm-evaluation,cross-agent-discovery
+      - key: WALLET_JSON
+        sync: false  # Set manually in Render dashboard (contains sensitive keypair)

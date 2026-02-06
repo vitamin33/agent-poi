@@ -1,0 +1,1014 @@
+{
+  "address": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
+  "metadata": {
+    "name": "agent_registry",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Agent Proof-of-Intelligence Registry for Solana"
+  },
+  "instructions": [
+    {
+      "name": "create_challenge",
+      "docs": [
+        "Create a new challenge for an agent"
+      ],
+      "discriminator": [
+        170,
+        244,
+        47,
+        1,
+        1,
+        15,
+        173,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "challenger",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "agent",
+          "docs": [
+            "The agent being challenged"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.owner",
+                "account": "AgentAccount"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "challenge",
+          "docs": [
+            "The challenge account (PDA derived from agent + challenger + timestamp)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "account",
+                "path": "challenger"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "name": "expected_hash",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "create_collection",
+      "docs": [
+        "Set the NFT collection address for agent identities (admin only, one-time)",
+        "The collection itself is created off-chain using Metaplex SDK"
+      ],
+      "discriminator": [
+        156,
+        251,
+        92,
+        54,
+        233,
+        2,
+        16,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collection"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the global registry state"
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_agent",
+      "docs": [
+        "Register a new AI agent with identity NFT reference",
+        "The NFT should be created off-chain first using Metaplex SDK"
+      ],
+      "discriminator": [
+        135,
+        157,
+        66,
+        195,
+        2,
+        113,
+        175,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "registry.total_agents",
+                "account": "RegistryState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "In production, verify this belongs to the collection and is owned by the signer"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "model_hash",
+          "type": "string"
+        },
+        {
+          "name": "capabilities",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "submit_response",
+      "docs": [
+        "Submit a response to a challenge (verifies and updates reputation)"
+      ],
+      "discriminator": [
+        85,
+        190,
+        208,
+        119,
+        243,
+        52,
+        133,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "docs": [
+            "Agent owner submitting the response"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "docs": [
+            "The registry (for validation)"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "docs": [
+            "The agent account (must be owned by signer)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "challenge",
+          "docs": [
+            "The challenge to respond to"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "account",
+                "path": "challenge.challenger",
+                "account": "Challenge"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "response_hash",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "update_agent",
+      "docs": [
+        "Update an agent's metadata"
+      ],
+      "discriminator": [
+        85,
+        2,
+        178,
+        9,
+        119,
+        139,
+        102,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": {
+            "option": "string"
+          }
+        },
+        {
+          "name": "capabilities",
+          "type": {
+            "option": "string"
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_reputation",
+      "docs": [
+        "Update agent reputation (called by challenge program)"
+      ],
+      "discriminator": [
+        194,
+        220,
+        43,
+        201,
+        54,
+        209,
+        49,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The admin or challenge program updating reputation"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.owner",
+                "account": "AgentAccount"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "delta",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "verify_agent",
+      "docs": [
+        "Verify an agent (admin only)"
+      ],
+      "discriminator": [
+        206,
+        212,
+        108,
+        12,
+        105,
+        61,
+        100,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.owner",
+                "account": "AgentAccount"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AgentAccount",
+      "discriminator": [
+        241,
+        119,
+        69,
+        140,
+        233,
+        9,
+        112,
+        50
+      ]
+    },
+    {
+      "name": "Challenge",
+      "discriminator": [
+        119,
+        250,
+        161,
+        121,
+        119,
+        81,
+        22,
+        208
+      ]
+    },
+    {
+      "name": "RegistryState",
+      "discriminator": [
+        29,
+        34,
+        224,
+        195,
+        175,
+        183,
+        99,
+        97
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NameTooLong",
+      "msg": "Name is too long (max 64 characters)"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidModelHash",
+      "msg": "Model hash is invalid (must be sha256:...)"
+    },
+    {
+      "code": 6002,
+      "name": "CapabilitiesTooLong",
+      "msg": "Capabilities string is too long (max 256 characters)"
+    },
+    {
+      "code": 6003,
+      "name": "AlreadyVerified",
+      "msg": "Agent is already verified"
+    },
+    {
+      "code": 6004,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: only owner can update agent"
+    },
+    {
+      "code": 6005,
+      "name": "ReputationDeltaTooLarge",
+      "msg": "Reputation delta too large"
+    },
+    {
+      "code": 6006,
+      "name": "AgentNotFound",
+      "msg": "Agent not found"
+    },
+    {
+      "code": 6007,
+      "name": "RegistryFull",
+      "msg": "Registry is full"
+    },
+    {
+      "code": 6008,
+      "name": "CollectionAlreadyInitialized",
+      "msg": "Collection has already been initialized"
+    },
+    {
+      "code": 6009,
+      "name": "CollectionNotInitialized",
+      "msg": "Collection must be initialized before registering agents"
+    },
+    {
+      "code": 6010,
+      "name": "QuestionTooLong",
+      "msg": "Question is too long (max 256 characters)"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidExpectedHash",
+      "msg": "Expected hash must be 64 characters (SHA256 hex)"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidResponseHash",
+      "msg": "Response hash must be 64 characters (SHA256 hex)"
+    },
+    {
+      "code": 6013,
+      "name": "ChallengeExpired",
+      "msg": "Challenge has expired"
+    },
+    {
+      "code": 6014,
+      "name": "ChallengeNotPending",
+      "msg": "Challenge is not pending"
+    },
+    {
+      "code": 6015,
+      "name": "ChallengeMismatch",
+      "msg": "Challenge does not match the agent"
+    }
+  ],
+  "types": [
+    {
+      "name": "AgentAccount",
+      "docs": [
+        "Agent account - represents a registered AI agent"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "docs": [
+              "Unique agent ID (auto-incremented)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "Owner wallet pubkey"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Agent name (max 64 chars)"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "model_hash",
+            "docs": [
+              "SHA256 hash of the model file (e.g., \"sha256:abc123...\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "capabilities",
+            "docs": [
+              "Comma-separated list of capabilities (e.g., \"analysis,coding,trading\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "reputation_score",
+            "docs": [
+              "Reputation score (0-10000, representing 0.00-100.00%)"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "challenges_passed",
+            "docs": [
+              "Number of challenges passed"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "challenges_failed",
+            "docs": [
+              "Number of challenges failed"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "verified",
+            "docs": [
+              "Whether the agent has been verified by admin"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp when agent was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "Unix timestamp when agent was last updated"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "nft_mint",
+            "docs": [
+              "NFT asset pubkey (Metaplex Core identity NFT)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA derivation"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Challenge",
+      "docs": [
+        "Challenge account - represents a verification challenge for an agent"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "docs": [
+              "The agent being challenged"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "challenger",
+            "docs": [
+              "Who created the challenge"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "question",
+            "docs": [
+              "The challenge question/prompt"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "expected_hash",
+            "docs": [
+              "SHA256 hash of the expected answer (for verification)"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Current status of the challenge"
+            ],
+            "type": {
+              "defined": {
+                "name": "ChallengeStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp when challenge was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "docs": [
+              "Unix timestamp when challenge expires"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "responded_at",
+            "docs": [
+              "Unix timestamp when agent responded (if any)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA derivation"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeStatus",
+      "docs": [
+        "Challenge status enum"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Passed"
+          },
+          {
+            "name": "Failed"
+          },
+          {
+            "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryState",
+      "docs": [
+        "Global registry state - tracks total agents and admin"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Admin pubkey who can verify agents"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_agents",
+            "docs": [
+              "Total number of registered agents"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "collection",
+            "docs": [
+              "Metaplex Core collection address for agent identity NFTs"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collection_initialized",
+            "docs": [
+              "Whether the NFT collection has been initialized"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
