@@ -39,33 +39,43 @@ export default function Home() {
       setRegistryInfo(registry);
 
       const totalAgents = registry.totalAgents.toNumber();
-      const fetchedAgents: AgentData[] = [];
 
-      for (let i = 0; i < Math.min(totalAgents, 50); i++) {
-        try {
+      // Parallelize admin agent fetches with Promise.allSettled
+      const adminAgentPromises = Array.from(
+        { length: Math.min(totalAgents, 50) },
+        (_, i) => {
           const [agentPda] = getAgentPDA(registry.admin, i);
-          const agent = await fetchAgentAccount(connection, agentPda);
-          if (agent) {
-            fetchedAgents.push(agent);
-          }
-        } catch {
-          // Agent might be owned by different user, skip
+          return fetchAgentAccount(connection, agentPda);
         }
-      }
+      );
 
-      if (wallet.publicKey && !wallet.publicKey.equals(registry.admin)) {
-        for (let i = 0; i < 10; i++) {
-          try {
-            const [agentPda] = getAgentPDA(wallet.publicKey, i);
-            const agent = await fetchAgentAccount(connection, agentPda);
-            if (agent && !fetchedAgents.find(a => a.agentId.eq(agent.agentId))) {
-              fetchedAgents.push(agent);
-            }
-          } catch {
-            break;
+      // Parallelize user agent fetches if different from admin
+      const userAgentPromises = wallet.publicKey && !wallet.publicKey.equals(registry.admin)
+        ? Array.from({ length: 10 }, (_, i) => {
+            const [agentPda] = getAgentPDA(wallet.publicKey!, i);
+            return fetchAgentAccount(connection, agentPda);
+          })
+        : [];
+
+      // Execute all fetches in parallel
+      const [adminResults, userResults] = await Promise.all([
+        Promise.allSettled(adminAgentPromises),
+        Promise.allSettled(userAgentPromises),
+      ]);
+
+      // Collect successful admin agents
+      const fetchedAgents: AgentData[] = adminResults
+        .filter((r): r is PromiseFulfilledResult<AgentData | null> => r.status === "fulfilled" && r.value !== null)
+        .map(r => r.value!);
+
+      // Add user agents that aren't duplicates
+      userResults.forEach(r => {
+        if (r.status === "fulfilled" && r.value !== null) {
+          if (!fetchedAgents.find(a => a.agentId.eq(r.value!.agentId))) {
+            fetchedAgents.push(r.value);
           }
         }
-      }
+      });
 
       fetchedAgents.sort((a, b) => b.reputationScore - a.reputationScore);
       setAgents(fetchedAgents);

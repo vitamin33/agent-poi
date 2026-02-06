@@ -52,7 +52,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Animated neural grid background */
+/* Neural grid background - optimized for performance */
 body::before {
   content: '';
   position: fixed;
@@ -66,7 +66,9 @@ body::before {
   background-size: var(--grid-size) var(--grid-size);
   pointer-events: none;
   z-index: 0;
-  animation: gridPulse 8s ease-in-out infinite;
+  opacity: 0.7;
+  /* Removed continuous animation - static grid is more performant */
+  /* animation: gridPulse 8s ease-in-out infinite; */
 }
 
 /* Gradient overlay for depth */
@@ -241,7 +243,7 @@ h1, h2, h3, h4, h5, h6 {
   background-clip: text;
 }
 
-/* Status indicator pulse */
+/* Status indicator pulse - GPU accelerated */
 @keyframes statusPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.2); }
@@ -249,6 +251,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .status-live {
   animation: statusPulse 2s ease-in-out infinite;
+  will-change: transform, opacity;
+  transform: translateZ(0); /* Force GPU layer */
 }
 
 /* Stats card gradient borders */
