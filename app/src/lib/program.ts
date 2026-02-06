@@ -1,14 +1,30 @@
-import { Program, AnchorProvider, Idl, BN } from "@coral-xyz/anchor";
-import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { AnchorWallet } from "@solana/wallet-adapter-react";
+import { WalletContextState } from "@solana/wallet-adapter-react";
 
 // Program ID from deployed contract
 export const PROGRAM_ID = new PublicKey(
   "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38"
 );
 
-// IDL - simplified for client usage (typed as any for hackathon)
-export const IDL: any = {
+/**
+ * Model hash validation regex
+ * Format: sha256: followed by exactly 64 hex characters
+ */
+export const MODEL_HASH_REGEX = /^sha256:[a-f0-9]{64}$/i;
+
+/**
+ * Validate model hash format
+ */
+export function isValidModelHash(hash: string): boolean {
+  return MODEL_HASH_REGEX.test(hash);
+}
+
+// IDL - simplified for client usage
+// Note: Full type generation requires anchor-client-gen or similar tooling
+// For hackathon demo, using Idl type with runtime validation
+export const IDL = {
   version: "0.1.0",
   name: "agent_registry",
   address: "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
@@ -122,11 +138,41 @@ export interface RegistryData {
   bump: number;
 }
 
-export function getProgram(connection: Connection, wallet: AnchorWallet): any {
+/**
+ * Type guard to check if a wallet has the required properties for AnchorWallet
+ */
+export function isAnchorWallet(wallet: WalletContextState): wallet is WalletContextState & AnchorWallet {
+  return !!(
+    wallet.publicKey &&
+    wallet.signTransaction &&
+    wallet.signAllTransactions
+  );
+}
+
+/**
+ * Get the Anchor program instance
+ * @throws Error if wallet is not connected or doesn't support signing
+ *
+ * Note: Returns `any` because we don't have generated types from anchor-client-gen.
+ * In production, use `anchor build && anchor idl generate` to create proper types.
+ */
+export function getProgram(connection: Connection, wallet: AnchorWallet): ReturnType<typeof createProgram> {
   const provider = new AnchorProvider(connection, wallet, {
     commitment: "confirmed",
   });
-  return new Program(IDL, provider);
+  return new Program(IDL, provider) as unknown as ReturnType<typeof createProgram>;
+}
+
+// Type helper for the program instance (accounts are dynamically accessed)
+function createProgram() {
+  return null as unknown as {
+    methods: Record<string, (...args: unknown[]) => { accounts: (accounts: Record<string, unknown>) => { rpc: () => Promise<string> } }>;
+    account: {
+      registryState: { fetch: (address: PublicKey) => Promise<RegistryData> };
+      agentAccount: { fetch: (address: PublicKey) => Promise<AgentData> };
+      challenge: { fetch: (address: PublicKey) => Promise<unknown> };
+    };
+  };
 }
 
 export function getRegistryPDA(): [PublicKey, number] {

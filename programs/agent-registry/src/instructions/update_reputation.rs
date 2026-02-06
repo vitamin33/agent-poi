@@ -4,13 +4,22 @@ use crate::errors::RegistryError;
 
 #[derive(Accounts)]
 pub struct UpdateReputation<'info> {
-    /// The admin or challenge program updating reputation
+    /// Authority for reputation updates - SECURITY NOTICE
+    ///
+    /// HACKATHON LIMITATION: Currently only admin can update reputation.
+    ///
+    /// PRODUCTION REQUIREMENTS:
+    /// 1. Add a separate "authorized_verifiers" PDA to store allowed callers
+    /// 2. Allow challenge program PDAs to update reputation via CPI
+    /// 3. Consider time-locked updates or multi-sig for large reputation changes
+    /// 4. Implement rate limiting per agent to prevent reputation farming
     #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
         seeds = [RegistryState::SEED_PREFIX],
         bump = registry.bump,
+        // Currently admin-only. For production, expand to include verified challenge programs
         constraint = registry.admin == authority.key() @ RegistryError::Unauthorized
     )]
     pub registry: Account<'info, RegistryState>,

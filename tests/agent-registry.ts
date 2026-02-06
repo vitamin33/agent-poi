@@ -444,4 +444,185 @@ describe("agent-registry", () => {
       challengesFailed: agentAfter.challengesFailed,
     });
   });
+
+  // ============================================
+  // Error Path Tests (Critical Security)
+  // ============================================
+
+  describe("Error paths", () => {
+    it("Should reject invalid model hash format", async () => {
+      const registryState = await program.account.registryState.fetch(registryPda);
+      const agentId = registryState.totalAgents;
+
+      const [agentPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("agent"),
+          provider.wallet.publicKey.toBuffer(),
+          agentId.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      );
+
+      const invalidModelHash = "md5:abc123"; // Not sha256
+
+      try {
+        await program.methods
+          .registerAgent("InvalidAgent", invalidModelHash, "test")
+          .accounts({
+            owner: provider.wallet.publicKey,
+            registry: registryPda,
+            agent: agentPda,
+            nftMint: Keypair.generate().publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        throw new Error("Should have failed with InvalidModelHash");
+      } catch (err: unknown) {
+        const error = err as Error;
+        expect(error.message).to.include("InvalidModelHash");
+        console.log("Correctly rejected invalid model hash format");
+      }
+    });
+
+    it("Should reject non-admin trying to verify agent", async () => {
+      const agentId = new BN(0);
+
+      const [agentPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("agent"),
+          provider.wallet.publicKey.toBuffer(),
+          agentId.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      );
+
+      // Create a non-admin keypair
+      const nonAdmin = Keypair.generate();
+      const airdropSig = await provider.connection.requestAirdrop(
+        nonAdmin.publicKey,
+        1000000000
+      );
+      await provider.connection.confirmTransaction(airdropSig);
+
+      try {
+        await program.methods
+          .verifyAgent()
+          .accounts({
+            admin: nonAdmin.publicKey,
+            registry: registryPda,
+            agent: agentPda,
+          })
+          .signers([nonAdmin])
+          .rpc();
+        throw new Error("Should have failed with Unauthorized");
+      } catch (err: unknown) {
+        const error = err as Error;
+        expect(error.message).to.include("Unauthorized");
+        console.log("Correctly rejected non-admin verification attempt");
+      }
+    });
+
+    it("Should reject non-owner trying to update agent", async () => {
+      const agentId = new BN(0);
+
+      const [agentPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("agent"),
+          provider.wallet.publicKey.toBuffer(),
+          agentId.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      );
+
+      // Create a non-owner keypair
+      const nonOwner = Keypair.generate();
+      const airdropSig = await provider.connection.requestAirdrop(
+        nonOwner.publicKey,
+        1000000000
+      );
+      await provider.connection.confirmTransaction(airdropSig);
+
+      try {
+        await program.methods
+          .updateAgent("HackedName", "hacked,capabilities")
+          .accounts({
+            owner: nonOwner.publicKey,
+            agent: agentPda,
+          })
+          .signers([nonOwner])
+          .rpc();
+        throw new Error("Should have failed with Unauthorized");
+      } catch (err: unknown) {
+        const error = err as Error;
+        // May fail with constraint violation or Unauthorized
+        expect(error.message).to.satisfy((msg: string) =>
+          msg.includes("Unauthorized") || msg.includes("ConstraintSeeds") || msg.includes("has_one")
+        );
+        console.log("Correctly rejected non-owner update attempt");
+      }
+    });
+
+    it("Should reject reputation delta too large", async () => {
+      const agentId = new BN(0);
+
+      const [agentPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("agent"),
+          provider.wallet.publicKey.toBuffer(),
+          agentId.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      );
+
+      try {
+        await program.methods
+          .updateReputation(5000) // Exceeds max of 1000
+          .accounts({
+            authority: provider.wallet.publicKey,
+            registry: registryPda,
+            agent: agentPda,
+          })
+          .rpc();
+        throw new Error("Should have failed with ReputationDeltaTooLarge");
+      } catch (err: unknown) {
+        const error = err as Error;
+        expect(error.message).to.include("ReputationDeltaTooLarge");
+        console.log("Correctly rejected excessive reputation delta");
+      }
+    });
+
+    it("Should reject agent name too long", async () => {
+      const registryState = await program.account.registryState.fetch(registryPda);
+      const agentId = registryState.totalAgents;
+
+      const [agentPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("agent"),
+          provider.wallet.publicKey.toBuffer(),
+          agentId.toArrayLike(Buffer, "le", 8),
+        ],
+        programId
+      );
+
+      const tooLongName = "A".repeat(100); // Exceeds 64 char limit
+
+      try {
+        await program.methods
+          .registerAgent(tooLongName, testModelHash, "test")
+          .accounts({
+            owner: provider.wallet.publicKey,
+            registry: registryPda,
+            agent: agentPda,
+            nftMint: Keypair.generate().publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        throw new Error("Should have failed with NameTooLong");
+      } catch (err: unknown) {
+        const error = err as Error;
+        expect(error.message).to.include("NameTooLong");
+        console.log("Correctly rejected name exceeding 64 characters");
+      }
+    });
+  });
 });

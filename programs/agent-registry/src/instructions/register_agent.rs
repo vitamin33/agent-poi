@@ -28,8 +28,18 @@ pub struct RegisterAgent<'info> {
     )]
     pub agent: Account<'info, AgentAccount>,
 
-    /// CHECK: The NFT asset account (created off-chain via Metaplex SDK)
-    /// In production, verify this belongs to the collection and is owned by the signer
+    /// CHECK: NFT mint account - SECURITY NOTICE
+    ///
+    /// HACKATHON LIMITATION: This account is unchecked for demo purposes.
+    /// The NFT is expected to be created off-chain via Metaplex SDK before calling this instruction.
+    ///
+    /// PRODUCTION REQUIREMENTS:
+    /// 1. Verify NFT belongs to the agent collection (collection field matches registry.collection)
+    /// 2. Verify caller (owner) is the NFT holder
+    /// 3. Consider using Metaplex Core CPI for on-chain NFT creation
+    /// 4. Add NFT metadata validation (name, symbol, URI structure)
+    ///
+    /// Without these checks, any arbitrary pubkey can be passed as the NFT mint.
     pub nft_mint: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,

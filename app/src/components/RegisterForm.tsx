@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, SystemProgram } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
-import { getProgram, getRegistryPDA, getAgentPDA, RegistryData } from "@/lib/program";
+import { getProgram, getRegistryPDA, getAgentPDA, RegistryData, isAnchorWallet, isValidModelHash } from "@/lib/program";
 
 interface RegisterFormProps {
   onSuccess?: () => void;
@@ -25,8 +24,28 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!wallet.publicKey || !wallet.signTransaction) {
-      setError("Please connect your wallet");
+
+    // Validate wallet connection with type guard
+    if (!isAnchorWallet(wallet)) {
+      setError("Please connect a wallet that supports transaction signing");
+      return;
+    }
+
+    // Validate model hash format
+    if (!isValidModelHash(formData.modelHash)) {
+      setError("Invalid model hash format. Must be sha256: followed by 64 hex characters");
+      return;
+    }
+
+    // Validate name
+    if (formData.name.trim().length < 3) {
+      setError("Agent name must be at least 3 characters");
+      return;
+    }
+
+    // Validate capabilities
+    if (formData.capabilities.trim().length < 3) {
+      setError("Please specify at least one capability");
       return;
     }
 
@@ -35,7 +54,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
     setSuccess(null);
 
     try {
-      const program = getProgram(connection, wallet as any);
+      const program = getProgram(connection, wallet);
       const [registryPda] = getRegistryPDA();
 
       // Fetch registry to get current total_agents
@@ -45,10 +64,11 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       const [agentPda] = getAgentPDA(wallet.publicKey, agentId);
 
       // Generate mock NFT for demo
+      // Note: In production, use Metaplex SDK to create real NFTs
       const mockNft = Keypair.generate();
 
       const tx = await program.methods
-        .registerAgent(formData.name, formData.modelHash, formData.capabilities)
+        .registerAgent(formData.name.trim(), formData.modelHash, formData.capabilities.trim())
         .accounts({
           owner: wallet.publicKey,
           registry: registryPda,
@@ -61,9 +81,10 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       setSuccess(`Agent registered! TX: ${tx.substring(0, 16)}...`);
       setFormData({ name: "", modelHash: "sha256:", capabilities: "" });
       onSuccess?.();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Registration error:", err);
-      setError(err.message || "Failed to register agent");
+      const message = err instanceof Error ? err.message : "Failed to register agent";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -97,12 +118,14 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
             setFormData({ ...formData, modelHash: e.target.value })
           }
           className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:border-purple-500"
-          placeholder="sha256:abc123..."
+          placeholder="sha256:abc123def456..."
           required
           minLength={71}
+          maxLength={71}
+          pattern="^sha256:[a-fA-F0-9]{64}$"
         />
         <p className="text-xs text-gray-500 mt-1">
-          SHA256 hash of your model file (GGUF format)
+          SHA256 hash of your model file (sha256: + 64 hex chars)
         </p>
       </div>
 

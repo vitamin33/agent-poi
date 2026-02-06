@@ -10,6 +10,7 @@ import {
   getAgentPDA,
   AgentData,
   RegistryData,
+  isAnchorWallet,
 } from "@/lib/program";
 import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
@@ -23,13 +24,13 @@ export default function Home() {
   const [registryInfo, setRegistryInfo] = useState<RegistryData | null>(null);
 
   const loadAgents = useCallback(async () => {
-    if (!wallet.publicKey) {
+    if (!isAnchorWallet(wallet)) {
       setLoading(false);
       return;
     }
 
     try {
-      const program = getProgram(connection, wallet as any);
+      const program = getProgram(connection, wallet);
       const [registryPda] = getRegistryPDA();
 
       // Fetch registry state
@@ -71,8 +72,8 @@ export default function Home() {
       // Sort by reputation (descending)
       fetchedAgents.sort((a, b) => b.reputationScore - a.reputationScore);
       setAgents(fetchedAgents);
-    } catch (err) {
-      console.error("Error loading agents:", err);
+    } catch (err: unknown) {
+      console.error("Error loading agents:", err instanceof Error ? err.message : err);
     } finally {
       setLoading(false);
     }
