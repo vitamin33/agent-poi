@@ -5,12 +5,12 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { BN } from "@coral-xyz/anchor";
 import {
-  getProgram,
-  getRegistryPDA,
   getAgentPDA,
   AgentData,
   RegistryData,
   isAnchorWallet,
+  fetchRegistryState,
+  fetchAgentAccount,
 } from "@/lib/program";
 import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
@@ -31,11 +31,13 @@ export default function Home() {
     }
 
     try {
-      const program = getProgram(connection, wallet);
-      const [registryPda] = getRegistryPDA();
-
-      // Fetch registry state
-      const registry = await program.account.registryState.fetch(registryPda) as RegistryData;
+      // Fetch registry state using manual parsing
+      const registry = await fetchRegistryState(connection);
+      if (!registry) {
+        console.log("Registry not initialized yet");
+        setLoading(false);
+        return;
+      }
       setRegistryInfo(registry);
 
       const totalAgents = registry.totalAgents.toNumber();
@@ -48,8 +50,10 @@ export default function Home() {
           // We need to find agents by iterating through possible owners
           // For demo, we'll try to fetch our own agents and some known ones
           const [agentPda] = getAgentPDA(registry.admin, i);
-          const agent = await program.account.agentAccount.fetch(agentPda) as AgentData;
-          fetchedAgents.push(agent);
+          const agent = await fetchAgentAccount(connection, agentPda);
+          if (agent) {
+            fetchedAgents.push(agent);
+          }
         } catch {
           // Agent might be owned by different user, skip
         }
@@ -60,8 +64,8 @@ export default function Home() {
         for (let i = 0; i < 10; i++) {
           try {
             const [agentPda] = getAgentPDA(wallet.publicKey, i);
-            const agent = await program.account.agentAccount.fetch(agentPda) as AgentData;
-            if (!fetchedAgents.find(a => a.agentId.eq(agent.agentId))) {
+            const agent = await fetchAgentAccount(connection, agentPda);
+            if (agent && !fetchedAgents.find(a => a.agentId.eq(agent.agentId))) {
               fetchedAgents.push(agent);
             }
           } catch {

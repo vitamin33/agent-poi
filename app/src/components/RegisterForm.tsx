@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Keypair, SystemProgram } from "@solana/web3.js";
-import { getProgram, getRegistryPDA, getAgentPDA, RegistryData, isAnchorWallet, isValidModelHash } from "@/lib/program";
+import { Keypair } from "@solana/web3.js";
+import { getRegistryPDA, getAgentPDA, isAnchorWallet, isValidModelHash, fetchRegistryState, buildRegisterAgentInstruction, sendAndConfirmTransaction } from "@/lib/program";
 
 interface RegisterFormProps {
   onSuccess?: () => void;
@@ -54,11 +54,15 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
     setSuccess(null);
 
     try {
-      const program = getProgram(connection, wallet);
       const [registryPda] = getRegistryPDA();
 
-      // Fetch registry to get current total_agents
-      const registry = await program.account.registryState.fetch(registryPda) as RegistryData;
+      // Fetch registry to get current total_agents using manual parsing
+      const registry = await fetchRegistryState(connection);
+      if (!registry) {
+        setError("Registry not initialized. Please contact the admin.");
+        setLoading(false);
+        return;
+      }
       const agentId = registry.totalAgents;
 
       const [agentPda] = getAgentPDA(wallet.publicKey, agentId);
@@ -67,16 +71,18 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       // Note: In production, use Metaplex SDK to create real NFTs
       const mockNft = Keypair.generate();
 
-      const tx = await program.methods
-        .registerAgent(formData.name.trim(), formData.modelHash, formData.capabilities.trim())
-        .accounts({
-          owner: wallet.publicKey,
-          registry: registryPda,
-          agent: agentPda,
-          nftMint: mockNft.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+      // Build and send transaction manually to avoid Anchor IDL issues
+      const instruction = buildRegisterAgentInstruction(
+        wallet.publicKey,
+        registryPda,
+        agentPda,
+        mockNft.publicKey,
+        formData.name.trim(),
+        formData.modelHash,
+        formData.capabilities.trim()
+      );
+
+      const tx = await sendAndConfirmTransaction(connection, wallet, instruction);
 
       setSuccess(`Agent registered! TX: ${tx.substring(0, 16)}...`);
       setFormData({ name: "", modelHash: "sha256:", capabilities: "" });

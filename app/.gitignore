@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Test wallet files (NEVER commit)
+test-wallet.json
+*-keypair.json
+
 # vercel
 .vercel
 

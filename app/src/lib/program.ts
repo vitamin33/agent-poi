@@ -1,7 +1,8 @@
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, TransactionInstruction, SystemProgram, Transaction } from "@solana/web3.js";
 import { AnchorWallet } from "@solana/wallet-adapter-react";
 import { WalletContextState } from "@solana/wallet-adapter-react";
+import { createHash } from "crypto";
 
 // Program ID from deployed contract
 export const PROGRAM_ID = new PublicKey(
@@ -21,13 +22,18 @@ export function isValidModelHash(hash: string): boolean {
   return MODEL_HASH_REGEX.test(hash);
 }
 
-// IDL - simplified for client usage
+// IDL - Anchor 0.32 format with types array
 // Note: Full type generation requires anchor-client-gen or similar tooling
 // For hackathon demo, using Idl type with runtime validation
 export const IDL = {
   version: "0.1.0",
   name: "agent_registry",
   address: "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
+  metadata: {
+    name: "agent_registry",
+    version: "0.1.0",
+    spec: "0.1.0",
+  },
   instructions: [
     {
       name: "initialize",
@@ -112,6 +118,9 @@ export const IDL = {
       },
     },
   ],
+  types: [],
+  events: [],
+  errors: [],
 };
 
 export interface AgentData {
@@ -238,4 +247,218 @@ export function getChallengePDA(
     [Buffer.from("challenge"), agent.toBuffer(), challenger.toBuffer()],
     PROGRAM_ID
   );
+}
+
+/**
+ * Manually fetch and parse registry state
+ * This bypasses Anchor's account parsing which may have IDL format issues
+ */
+export async function fetchRegistryState(
+  connection: Connection
+): Promise<RegistryData | null> {
+  const [registryPda] = getRegistryPDA();
+
+  try {
+    const accountInfo = await connection.getAccountInfo(registryPda);
+    if (!accountInfo) {
+      return null;
+    }
+
+    // Skip 8-byte discriminator
+    const data = accountInfo.data.slice(8);
+
+    // Parse registry state manually
+    // Layout: admin (32) + totalAgents (8) + collection (32) + collectionInitialized (1) + bump (1)
+    const admin = new PublicKey(data.slice(0, 32));
+    const totalAgents = new BN(data.slice(32, 40), "le");
+    const collection = new PublicKey(data.slice(40, 72));
+    const collectionInitialized = data[72] === 1;
+    const bump = data[73];
+
+    return {
+      admin,
+      totalAgents,
+      collection,
+      collectionInitialized,
+      bump,
+    };
+  } catch (error) {
+    console.error("Error fetching registry:", error);
+    return null;
+  }
+}
+
+/**
+ * Manually fetch and parse agent account
+ */
+export async function fetchAgentAccount(
+  connection: Connection,
+  agentPda: PublicKey
+): Promise<AgentData | null> {
+  try {
+    const accountInfo = await connection.getAccountInfo(agentPda);
+    if (!accountInfo) {
+      return null;
+    }
+
+    // Skip 8-byte discriminator
+    const data = accountInfo.data.slice(8);
+
+    // Parse agent account manually
+    let offset = 0;
+
+    const agentId = new BN(data.slice(offset, offset + 8), "le");
+    offset += 8;
+
+    const owner = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+
+    // String fields: length (4 bytes) + data
+    const nameLen = data.readUInt32LE(offset);
+    offset += 4;
+    const name = data.slice(offset, offset + nameLen).toString("utf8");
+    offset += nameLen;
+
+    const modelHashLen = data.readUInt32LE(offset);
+    offset += 4;
+    const modelHash = data.slice(offset, offset + modelHashLen).toString("utf8");
+    offset += modelHashLen;
+
+    const capabilitiesLen = data.readUInt32LE(offset);
+    offset += 4;
+    const capabilities = data.slice(offset, offset + capabilitiesLen).toString("utf8");
+    offset += capabilitiesLen;
+
+    const reputationScore = data.readUInt32LE(offset);
+    offset += 4;
+
+    const challengesPassed = data.readUInt32LE(offset);
+    offset += 4;
+
+    const challengesFailed = data.readUInt32LE(offset);
+    offset += 4;
+
+    const verified = data[offset] === 1;
+    offset += 1;
+
+    const createdAt = new BN(data.slice(offset, offset + 8), "le");
+    offset += 8;
+
+    const updatedAt = new BN(data.slice(offset, offset + 8), "le");
+    offset += 8;
+
+    const nftMint = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const bump = data[offset];
+
+    return {
+      agentId,
+      owner,
+      name,
+      modelHash,
+      capabilities,
+      reputationScore,
+      challengesPassed,
+      challengesFailed,
+      verified,
+      createdAt,
+      updatedAt,
+      nftMint,
+      bump,
+    };
+  } catch (error) {
+    console.error("Error fetching agent:", error);
+    return null;
+  }
+}
+
+/**
+ * Calculate Anchor instruction discriminator
+ * Anchor uses sighash("global:<instruction_name>")
+ */
+function getInstructionDiscriminator(name: string): Buffer {
+  // In browser, we can't use Node's crypto, so use a pre-computed value
+  // or implement SHA256 using Web Crypto
+  const discriminators: Record<string, number[]> = {
+    "register_agent": [135, 157, 66, 195, 2, 113, 175, 30],
+  };
+
+  if (discriminators[name]) {
+    return Buffer.from(discriminators[name]);
+  }
+
+  // Fallback - this won't work in browser but helps with debugging
+  throw new Error(`Unknown instruction: ${name}`);
+}
+
+/**
+ * Encode a string for Anchor (4-byte length prefix + UTF-8 data)
+ */
+function encodeString(str: string): Buffer {
+  const strBytes = Buffer.from(str, "utf8");
+  const lenBuffer = Buffer.alloc(4);
+  lenBuffer.writeUInt32LE(strBytes.length, 0);
+  return Buffer.concat([lenBuffer, strBytes]);
+}
+
+/**
+ * Build registerAgent transaction instruction manually
+ */
+export function buildRegisterAgentInstruction(
+  owner: PublicKey,
+  registryPda: PublicKey,
+  agentPda: PublicKey,
+  nftMint: PublicKey,
+  name: string,
+  modelHash: string,
+  capabilities: string
+): TransactionInstruction {
+  // Build instruction data
+  const discriminator = getInstructionDiscriminator("register_agent");
+  const nameData = encodeString(name);
+  const modelHashData = encodeString(modelHash);
+  const capabilitiesData = encodeString(capabilities);
+
+  const data = Buffer.concat([
+    discriminator,
+    nameData,
+    modelHashData,
+    capabilitiesData,
+  ]);
+
+  const keys = [
+    { pubkey: owner, isSigner: true, isWritable: true },
+    { pubkey: registryPda, isSigner: false, isWritable: true },
+    { pubkey: agentPda, isSigner: false, isWritable: true },
+    { pubkey: nftMint, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId: PROGRAM_ID,
+    data,
+  });
+}
+
+/**
+ * Send a transaction and confirm it
+ */
+export async function sendAndConfirmTransaction(
+  connection: Connection,
+  wallet: AnchorWallet,
+  instruction: TransactionInstruction
+): Promise<string> {
+  const transaction = new Transaction().add(instruction);
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = wallet.publicKey;
+
+  const signedTx = await wallet.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(signedTx.serialize());
+
+  await connection.confirmTransaction(signature, "confirmed");
+  return signature;
 }
