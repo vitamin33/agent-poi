@@ -108,26 +108,113 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Stats */}
+        {/* Hero Section */}
+        <div className="bg-gradient-to-r from-purple-900/30 via-gray-900 to-pink-900/30 rounded-2xl p-8 mb-8 border border-purple-800/30">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
+                Agent Proof-of-Intelligence
+              </h1>
+              <p className="text-gray-400 max-w-xl">
+                On-chain verification that AI agents are who they claim to be.
+                Cryptographic model hashing, challenge-response verification, and
+                SLM evaluation benchmarks on Solana.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="bg-green-900/50 text-green-400 px-3 py-1 rounded-full text-sm border border-green-700/50 flex items-center gap-1">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                A2A Ready
+              </span>
+              <span className="bg-blue-900/50 text-blue-400 px-3 py-1 rounded-full text-sm border border-blue-700/50">
+                EU AI Act
+              </span>
+              <span className="bg-purple-900/50 text-purple-400 px-3 py-1 rounded-full text-sm border border-purple-700/50">
+                NFT Identity
+              </span>
+              <span className="bg-yellow-900/50 text-yellow-400 px-3 py-1 rounded-full text-sm border border-yellow-700/50">
+                SLM Eval
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Enhanced Stats - Verifiable Metrics */}
         {registryInfo && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <p className="text-gray-400 text-sm">Total Agents</p>
-              <p className="text-3xl font-bold text-white">
-                {registryInfo.totalAgents.toString()}
-              </p>
+          <div className="mb-8">
+            {/* Primary Stats Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-4">
+              <div className="bg-gradient-to-br from-purple-900/50 to-purple-800/30 rounded-lg p-4 border border-purple-700/50">
+                <p className="text-purple-300 text-xs uppercase tracking-wide">Agents Registered</p>
+                <p className="text-3xl font-bold text-white">
+                  {registryInfo.totalAgents.toString()}
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-green-900/50 to-green-800/30 rounded-lg p-4 border border-green-700/50">
+                <p className="text-green-300 text-xs uppercase tracking-wide">Verified</p>
+                <p className="text-3xl font-bold text-green-400">
+                  {agents.filter(a => a.verified).length}
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-blue-900/50 to-blue-800/30 rounded-lg p-4 border border-blue-700/50">
+                <p className="text-blue-300 text-xs uppercase tracking-wide">Challenges</p>
+                <p className="text-3xl font-bold text-blue-400">
+                  {agents.reduce((sum, a) => sum + a.challengesPassed + a.challengesFailed, 0)}
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-yellow-900/50 to-yellow-800/30 rounded-lg p-4 border border-yellow-700/50">
+                <p className="text-yellow-300 text-xs uppercase tracking-wide">Pass Rate</p>
+                <p className="text-3xl font-bold text-yellow-400">
+                  {agents.length > 0
+                    ? Math.round(
+                        (agents.reduce((sum, a) => sum + a.challengesPassed, 0) /
+                        Math.max(1, agents.reduce((sum, a) => sum + a.challengesPassed + a.challengesFailed, 0))) * 100
+                      )
+                    : 0}%
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-pink-900/50 to-pink-800/30 rounded-lg p-4 border border-pink-700/50">
+                <p className="text-pink-300 text-xs uppercase tracking-wide">Avg Reputation</p>
+                <p className="text-3xl font-bold text-pink-400">
+                  {agents.length > 0
+                    ? (agents.reduce((sum, a) => sum + a.reputationScore, 0) / agents.length / 100).toFixed(1)
+                    : 0}%
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-cyan-900/50 to-cyan-800/30 rounded-lg p-4 border border-cyan-700/50">
+                <p className="text-cyan-300 text-xs uppercase tracking-wide">Network</p>
+                <p className="text-2xl font-bold text-cyan-400">Devnet</p>
+              </div>
             </div>
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <p className="text-gray-400 text-sm">Collection</p>
-              <p className="text-sm font-mono text-purple-400 truncate">
-                {registryInfo.collectionInitialized
-                  ? registryInfo.collection.toString().substring(0, 20) + "..."
-                  : "Not initialized"}
-              </p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <p className="text-gray-400 text-sm">Network</p>
-              <p className="text-2xl font-bold text-green-400">Devnet</p>
+
+            {/* Program Info Bar */}
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Program:</span>
+                <code className="text-purple-400 bg-gray-900 px-2 py-1 rounded font-mono">
+                  EQ2Zv3c...BACL38
+                </code>
+                <a
+                  href="https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  View on Explorer
+                </a>
+              </div>
+              <div className="flex items-center gap-4">
+                <a href="/skill.json" className="text-green-400 hover:underline">skill.json</a>
+                <a href="/skill.md" className="text-green-400 hover:underline">skill.md</a>
+                <a
+                  href="https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-white"
+                >
+                  GitHub
+                </a>
+              </div>
             </div>
           </div>
         )}
