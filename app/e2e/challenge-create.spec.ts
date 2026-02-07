@@ -19,8 +19,13 @@ test.describe('Challenge Creation Flow', () => {
     // Wait for agents to load
     await page.waitForTimeout(2000);
 
-    // Find an agent card with a Challenge button
-    const challengeButton = page.locator('button:has-text("Challenge")').first();
+    // Find a different agent card with a Challenge button (skip first which may have existing challenge)
+    const challengeButtons = page.locator('button:has-text("Challenge")');
+    const buttonCount = await challengeButtons.count();
+    console.log('Total Challenge buttons found:', buttonCount);
+
+    // Try the last agent (less likely to have existing challenge)
+    const challengeButton = buttonCount > 1 ? challengeButtons.nth(buttonCount - 1) : challengeButtons.first();
 
     // Check if challenge button exists
     const buttonExists = await challengeButton.isVisible().catch(() => false);
@@ -64,20 +69,37 @@ test.describe('Challenge Creation Flow', () => {
 
     // Wait for transaction - give it more time for signing and confirmation
     console.log('Waiting for transaction to be signed and confirmed...');
-    await page.waitForTimeout(10000);
+
+    // Try to wait for success message (modal shows success before closing)
+    try {
+      await page.locator('text=Challenge created').waitFor({ timeout: 15000 });
+      console.log('SUCCESS: Challenge created message appeared!');
+      await page.screenshot({ path: 'e2e-screenshots/challenge-success.png', fullPage: true });
+    } catch {
+      console.log('No success message within 15s, checking for error...');
+    }
 
     // Take screenshot after submission
     await page.screenshot({ path: 'e2e-screenshots/challenge-submitted.png', fullPage: true });
 
-    // Check for success or error
+    // Check modal state - is it still open?
+    const modalStillOpen = await page.locator('text=Challenge Agent').isVisible().catch(() => false);
+    console.log('Modal still open:', modalStillOpen);
+
+    // Check for success or error in modal
     const successMessage = page.locator('text=Challenge created');
-    const errorMessage = page.locator('text=/error|failed|Error/i');
+    const errorInModal = page.locator('.text-\\[\\#ef4444\\]'); // Red error text
 
     const hasSuccess = await successMessage.isVisible().catch(() => false);
-    const hasError = await errorMessage.isVisible().catch(() => false);
+    const hasError = await errorInModal.isVisible().catch(() => false);
 
     console.log('Success message visible:', hasSuccess);
-    console.log('Error message visible:', hasError);
+    console.log('Error in modal visible:', hasError);
+
+    if (hasError) {
+      const errorText = await errorInModal.textContent().catch(() => 'unknown');
+      console.log('Error text:', errorText);
+    }
 
     // Print console logs
     console.log('\n=== Console Logs ===');
