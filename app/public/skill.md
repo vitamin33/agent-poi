@@ -205,10 +205,10 @@ console.log(`Verified: ${agent.verified}`);
 
 ## Links
 
-- **GitHub:** https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon
+- **GitHub:** https://github.com/vitamin33/agent-poi
 - **Hackathon:** https://colosseum.com/agent-hackathon
 - **skill.json:** /skill.json
 
 ---
 
-Built for Colosseum Agent Hackathon | Assisterr Team
+Built for Colosseum Agent Hackathon | by AI Jesus

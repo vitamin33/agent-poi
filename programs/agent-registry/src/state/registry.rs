@@ -18,6 +18,6 @@ pub struct RegistryState {
 
 impl RegistryState {
     pub const SEED_PREFIX: &'static [u8] = b"registry";
-    pub const COLLECTION_NAME: &'static str = "Assisterr Agent Identity";
-    pub const COLLECTION_URI: &'static str = "https://arweave.net/assisterr-agent-collection";
+    pub const COLLECTION_NAME: &'static str = "Agent PoI Identity";
+    pub const COLLECTION_URI: &'static str = "https://arweave.net/agent-poi-collection";
 }

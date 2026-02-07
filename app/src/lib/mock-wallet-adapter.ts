@@ -25,7 +25,7 @@ export const MockWalletName = "MockWallet" as WalletName<"MockWallet">;
 
 export class MockWalletAdapter extends BaseMessageSignerWalletAdapter {
   name = MockWalletName;
-  url = "https://test.assisterr.ai";
+  url = "https://agent-poi.dev";
   icon =
     "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzhCNUNGNiIvPjx0ZXh0IHg9IjE2IiB5PSIyMCIgZm9udC1zaXplPSIxMiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPk08L3RleHQ+PC9zdmc+";
   supportedTransactionVersions = new Set<"legacy" | 0>(["legacy", 0]);

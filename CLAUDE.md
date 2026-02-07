@@ -39,7 +39,7 @@
 ## Directory Structure
 
 ```
-assisterr-agent-hackathon/
+agent-poi/
 ├── programs/agent-registry/    # Anchor Solana program
 │   └── src/
 │       ├── lib.rs              # Program entry point
@@ -176,19 +176,27 @@ Focus on demonstrating:
 
 ### Dashboard (Vercel)
 - Auto-deploys on git push to main
-- URL: https://agent-poi-hackathon.vercel.app
+- URL: https://agent-poi.vercel.app
 
-### Python Agent (Render)
-- URL: https://assisterr-agent-hackathon.onrender.com
-- Health: https://assisterr-agent-hackathon.onrender.com/health
-- Auto-deploys on git push to main
+### Python Agents (Render - Multi-Agent)
+- Alpha (DeFi): https://agent-poi-alpha.onrender.com
+- Beta (Security): https://agent-poi-beta.onrender.com
+- Gamma (Solana): https://agent-poi-gamma.onrender.com
+- Each agent has A2A peers configured, they challenge each other autonomously
+
+### Local Multi-Agent Demo
+```bash
+./scripts/generate-agent-wallets.sh  # Generate 3 wallets
+docker compose -f docker-compose.multi-agent.yml up --build
+# Alpha: localhost:8001, Beta: localhost:8002, Gamma: localhost:8003
+```
 
 ## Quick Reference
 
 | Resource | URL/Value |
 |----------|-----------|
-| Dashboard | https://agent-poi-hackathon.vercel.app |
-| skill.json | https://agent-poi-hackathon.vercel.app/skill.json |
+| Dashboard | https://agent-poi.vercel.app |
+| skill.json | https://agent-poi.vercel.app/skill.json |
 | Program ID | EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38 |
-| GitHub | https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon |
+| GitHub | https://github.com/vitamin33/agent-poi |
 | Solana Explorer | https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet |

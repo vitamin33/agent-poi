@@ -1,6 +1,9 @@
+# Agent PoI - Multi-Agent Deployment on Render
+# Three autonomous agents that discover and challenge each other via A2A HTTP
 services:
+  # Agent Alpha - DeFi specialist
   - type: web
-    name: agent-poi-api
+    name: agent-poi-alpha
     env: docker
     plan: free
     dockerfilePath: ./agent/Dockerfile
@@ -12,8 +15,66 @@ services:
       - key: PROGRAM_ID
         value: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
       - key: AGENT_NAME
-        value: PoI Demo Agent
+        value: PoI-Alpha
       - key: AGENT_CAPABILITIES
-        value: challenge-response,slm-evaluation,cross-agent-discovery
+        value: defi-analysis,yield-farming,amm-math,cross-agent-discovery
+      - key: AGENT_PERSONALITY
+        value: defi
+      - key: AGENT_PUBLIC_URL
+        value: https://agent-poi-alpha.onrender.com
+      - key: AGENT_PEERS
+        value: https://agent-poi-beta.onrender.com,https://agent-poi-gamma.onrender.com
       - key: WALLET_JSON
-        sync: false  # Set manually in Render dashboard (contains sensitive keypair)
+        sync: false  # Set manually in Render dashboard
+
+  # Agent Beta - Security specialist
+  - type: web
+    name: agent-poi-beta
+    env: docker
+    plan: free
+    dockerfilePath: ./agent/Dockerfile
+    dockerContext: ./agent
+    healthCheckPath: /health
+    envVars:
+      - key: SOLANA_RPC_URL
+        value: https://api.devnet.solana.com
+      - key: PROGRAM_ID
+        value: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
+      - key: AGENT_NAME
+        value: PoI-Beta
+      - key: AGENT_CAPABILITIES
+        value: security-audit,vulnerability-scan,threat-detection,cross-agent-discovery
+      - key: AGENT_PERSONALITY
+        value: security
+      - key: AGENT_PUBLIC_URL
+        value: https://agent-poi-beta.onrender.com
+      - key: AGENT_PEERS
+        value: https://agent-poi-alpha.onrender.com,https://agent-poi-gamma.onrender.com
+      - key: WALLET_JSON
+        sync: false
+
+  # Agent Gamma - Solana specialist
+  - type: web
+    name: agent-poi-gamma
+    env: docker
+    plan: free
+    dockerfilePath: ./agent/Dockerfile
+    dockerContext: ./agent
+    healthCheckPath: /health
+    envVars:
+      - key: SOLANA_RPC_URL
+        value: https://api.devnet.solana.com
+      - key: PROGRAM_ID
+        value: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
+      - key: AGENT_NAME
+        value: PoI-Gamma
+      - key: AGENT_CAPABILITIES
+        value: solana-dev,pda-analysis,anchor-expert,cross-agent-discovery
+      - key: AGENT_PERSONALITY
+        value: solana
+      - key: AGENT_PUBLIC_URL
+        value: https://agent-poi-gamma.onrender.com
+      - key: AGENT_PEERS
+        value: https://agent-poi-alpha.onrender.com,https://agent-poi-beta.onrender.com
+      - key: WALLET_JSON
+        sync: false

@@ -2,9 +2,9 @@
   "name": "Agent Proof-of-Intelligence",
   "version": "1.0.0",
   "description": "On-chain agent identity verification with challenge-response system and SLM evaluation benchmarks. Proves AI agents are who they claim to be through cryptographic model hashing and domain-specific intelligence tests.",
-  "author": "Assisterr",
+  "author": "AI Jesus",
   "license": "MIT",
-  "repository": "https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon",
+  "repository": "https://github.com/vitamin33/agent-poi",
 
   "solana": {
     "program_id": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
@@ -23,7 +23,7 @@
   ],
 
   "api": {
-    "base_url": "https://assisterr-agent-hackathon.onrender.com",
+    "base_url": "https://agent-poi.onrender.com",
     "version": "v1",
     "endpoints": {
       "status": {
@@ -195,22 +195,36 @@
     }
   },
 
+  "a2a_protocol": {
+    "version": "1.0",
+    "discovery": "GET /a2a/info",
+    "peer_registry": "GET /peers",
+    "interaction_log": "GET /a2a/interactions",
+    "multi_agent": {
+      "agents": ["PoI-Alpha (DeFi)", "PoI-Beta (Security)", "PoI-Gamma (Solana)"],
+      "communication": "HTTP + on-chain challenges",
+      "autonomous": true
+    }
+  },
+
   "integration": {
     "wallet_adapter": true,
     "anchor_version": "0.32.0",
     "supported_wallets": ["Phantom", "Solflare", "Backpack"],
-    "typescript_sdk": "Coming soon",
-    "python_sdk": "agent/solana/client.py"
+    "python_sdk": "agent/solana_client/client.py",
+    "docker_compose": "docker-compose.multi-agent.yml"
   },
 
   "compliance": {
     "eu_ai_act": true,
-    "audit_trail": "Immutable on-chain audit logs via SentinelAgent",
-    "transparency": "All agent actions logged with cryptographic proofs"
+    "audit_trail": "Immutable on-chain audit logs via SentinelAgent + Merkle batching",
+    "transparency": "All agent actions logged with cryptographic proofs",
+    "a2a_interactions": "Full HTTP + on-chain audit trail for every cross-agent interaction"
   },
 
   "contact": {
-    "github": "https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon",
-    "hackathon": "https://colosseum.com/agent-hackathon"
+    "github": "https://github.com/vitamin33/agent-poi",
+    "hackathon": "https://colosseum.com/agent-hackathon",
+    "author": "AI Jesus"
   }
 }

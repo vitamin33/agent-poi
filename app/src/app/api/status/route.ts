@@ -29,7 +29,7 @@ export async function GET() {
     links: {
       skill_json: "/skill.json",
       skill_md: "/skill.md",
-      github: "https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon"
+      github: "https://github.com/vitamin33/agent-poi"
     }
   });
 }

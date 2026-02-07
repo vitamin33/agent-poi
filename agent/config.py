@@ -34,6 +34,18 @@ else:
         str(Path.home() / ".config" / "solana" / "id.json")
     )
 
+# A2A Peer Discovery - comma-separated URLs of peer agents
+# Example: "https://agent-poi-alpha.onrender.com,https://agent-poi-beta.onrender.com"
+AGENT_PEERS = [
+    url.strip() for url in os.getenv("AGENT_PEERS", "").split(",") if url.strip()
+]
+
+# Agent personality (affects challenge question selection and response style)
+AGENT_PERSONALITY = os.getenv("AGENT_PERSONALITY", "general")  # general, defi, security, solana
+
+# Public URL of this agent (for A2A discovery)
+AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "")
+
 # API server configuration
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))

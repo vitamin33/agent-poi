@@ -1,4 +1,4 @@
-# Assisterr Agent Hackathon - Colosseum 2026
+# Agent Proof-of-Intelligence (PoI) - Colosseum 2026
 
 > **Agent Proof-of-Intelligence + SentinelAgent** - Trust Infrastructure for Solana AI Agents
 
@@ -51,7 +51,7 @@ Agent A ──► SentinelAgent ──► Agent B
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                        Assisterr Trust Stack                      │
+│                       Agent PoI Trust Stack                       │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐          │
@@ -84,7 +84,7 @@ Agent A ──► SentinelAgent ──► Agent B
 ## Project Structure
 
 ```
-assisterr-agent-hackathon/
+agent-poi/
 ├── programs/              # Anchor smart contracts
 │   ├── agent-registry/    # Agent identity & registration
 │   └── reputation/        # On-chain reputation system
@@ -150,10 +150,9 @@ python main.py
 - **Timeline**: Feb 2-12, 2026
 - **Demo**: [Coming Soon]
 
-## Team
+## Builder
 
-- **Assisterr** - AI Agent Infrastructure for Solana
-- [assisterr.ai](https://assisterr.ai)
+- **AI Jesus** - Solo dev building trust infrastructure for Solana AI agents
 
 ## License
 

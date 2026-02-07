@@ -45,7 +45,7 @@ test.describe('Agent PoI Dashboard', () => {
   test('should have footer with hackathon info', async ({ page }) => {
     await expect(page.getByText('Built for')).toBeVisible();
     await expect(page.getByText('Colosseum Agent Hackathon')).toBeVisible();
-    await expect(page.getByText('Assisterr Team')).toBeVisible();
+    await expect(page.getByText('built by AI Jesus')).toBeVisible();
   });
 
   test('should have wallet adapter visible', async ({ page }) => {

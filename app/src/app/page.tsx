@@ -320,7 +320,7 @@ export default function Home() {
                   skill.md
                 </a>
                 <a
-                  href="https://github.com/vitaliiserbynassisterr/assisterr-agent-hackathon"
+                  href="https://github.com/vitamin33/agent-poi"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[var(--text-secondary)] hover:text-[var(--accent-primary)] transition-colors"
@@ -460,7 +460,7 @@ export default function Home() {
             </a>
           </p>
           <p className="text-[var(--text-muted)] text-xs mt-2">
-            Agent Proof-of-Intelligence Protocol • Assisterr Team
+            Agent Proof-of-Intelligence Protocol • built by AI Jesus
           </p>
         </div>
       </footer>

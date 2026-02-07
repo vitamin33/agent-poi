@@ -1,4 +1,4 @@
-# Assisterr Agent Proof-of-Intelligence Demo
+# Agent Proof-of-Intelligence Demo
 # Python 3.11+ required
 
 # Solana integration
