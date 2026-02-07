@@ -1,4 +1,5 @@
 [toolchain]
+# Using Solana 2.1.0 which has platform-tools v1.43+ (rustc 1.84+)
 
 [features]
 resolution = true
