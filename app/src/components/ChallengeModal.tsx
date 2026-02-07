@@ -82,6 +82,13 @@ export function ChallengeModal({
         }, 2000);
       } catch (err: unknown) {
         console.error("Challenge creation error:", err);
+        // Log more details for debugging
+        if (err && typeof err === 'object' && 'logs' in err) {
+          console.error("Transaction logs:", (err as { logs: string[] }).logs);
+        }
+        if (err && typeof err === 'object' && 'message' in err) {
+          console.error("Error message:", (err as Error).message);
+        }
         const message =
           err instanceof Error ? err.message : "Failed to create challenge";
         setError(message);

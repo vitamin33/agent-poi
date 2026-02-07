@@ -99,11 +99,23 @@ export class MockWalletAdapter extends BaseMessageSignerWalletAdapter {
       throw new Error("MockWallet: No private key configured");
     }
 
+    console.log("MockWallet: signTransaction called, type:", transaction instanceof Transaction ? "legacy" : "versioned");
+
     if (transaction instanceof Transaction) {
+      // Ensure recentBlockhash is set
+      if (!transaction.recentBlockhash) {
+        console.log("MockWallet: Transaction missing recentBlockhash");
+      }
+      if (!transaction.feePayer) {
+        console.log("MockWallet: Setting feePayer to mock wallet pubkey");
+        transaction.feePayer = this._publicKey!;
+      }
       transaction.partialSign(this._keypair);
+      console.log("MockWallet: Transaction signed, signatures:", transaction.signatures.length);
     } else {
       // VersionedTransaction
       transaction.sign([this._keypair]);
+      console.log("MockWallet: VersionedTransaction signed");
     }
 
     return transaction;

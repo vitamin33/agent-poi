@@ -1,8 +1,14 @@
-import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
+import { Program, AnchorProvider, BN, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey, TransactionInstruction, SystemProgram, Transaction } from "@solana/web3.js";
 import { AnchorWallet } from "@solana/wallet-adapter-react";
 import { WalletContextState } from "@solana/wallet-adapter-react";
 import { createHash } from "crypto";
+
+// Import the actual IDL from Anchor build (has discriminators for Anchor 0.32+)
+import IDL_JSON from "./agent_registry.json";
+
+// Cast the imported JSON to Idl type
+export const IDL = IDL_JSON as Idl;
 
 // Program ID from deployed contract
 export const PROGRAM_ID = new PublicKey(
@@ -21,107 +27,6 @@ export const MODEL_HASH_REGEX = /^sha256:[a-f0-9]{64}$/i;
 export function isValidModelHash(hash: string): boolean {
   return MODEL_HASH_REGEX.test(hash);
 }
-
-// IDL - Anchor 0.32 format with types array
-// Note: Full type generation requires anchor-client-gen or similar tooling
-// For hackathon demo, using Idl type with runtime validation
-export const IDL = {
-  version: "0.1.0",
-  name: "agent_registry",
-  address: "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
-  metadata: {
-    name: "agent_registry",
-    version: "0.1.0",
-    spec: "0.1.0",
-  },
-  instructions: [
-    {
-      name: "initialize",
-      accounts: [
-        { name: "admin", isMut: true, isSigner: true },
-        { name: "registry", isMut: true, isSigner: false },
-        { name: "systemProgram", isMut: false, isSigner: false },
-      ],
-      args: [],
-    },
-    {
-      name: "createCollection",
-      accounts: [
-        { name: "admin", isMut: true, isSigner: true },
-        { name: "registry", isMut: true, isSigner: false },
-        { name: "collection", isMut: false, isSigner: false },
-      ],
-      args: [],
-    },
-    {
-      name: "registerAgent",
-      accounts: [
-        { name: "owner", isMut: true, isSigner: true },
-        { name: "registry", isMut: true, isSigner: false },
-        { name: "agent", isMut: true, isSigner: false },
-        { name: "nftMint", isMut: false, isSigner: false },
-        { name: "systemProgram", isMut: false, isSigner: false },
-      ],
-      args: [
-        { name: "name", type: "string" },
-        { name: "modelHash", type: "string" },
-        { name: "capabilities", type: "string" },
-      ],
-    },
-    {
-      name: "createChallenge",
-      accounts: [
-        { name: "challenger", isMut: true, isSigner: true },
-        { name: "agent", isMut: false, isSigner: false },
-        { name: "challenge", isMut: true, isSigner: false },
-        { name: "systemProgram", isMut: false, isSigner: false },
-      ],
-      args: [
-        { name: "question", type: "string" },
-        { name: "expectedHash", type: "string" },
-      ],
-    },
-  ],
-  accounts: [
-    {
-      name: "RegistryState",
-      type: {
-        kind: "struct",
-        fields: [
-          { name: "admin", type: "publicKey" },
-          { name: "totalAgents", type: "u64" },
-          { name: "collection", type: "publicKey" },
-          { name: "collectionInitialized", type: "bool" },
-          { name: "bump", type: "u8" },
-        ],
-      },
-    },
-    {
-      name: "AgentAccount",
-      type: {
-        kind: "struct",
-        fields: [
-          { name: "agentId", type: "u64" },
-          { name: "owner", type: "publicKey" },
-          { name: "name", type: "string" },
-          { name: "modelHash", type: "string" },
-          { name: "capabilities", type: "string" },
-          { name: "reputationScore", type: "u32" },
-          { name: "challengesPassed", type: "u32" },
-          { name: "challengesFailed", type: "u32" },
-          { name: "verified", type: "bool" },
-          { name: "createdAt", type: "i64" },
-          { name: "updatedAt", type: "i64" },
-          { name: "nftMint", type: "publicKey" },
-          { name: "bump", type: "u8" },
-        ],
-      },
-    },
-  ],
-  types: [],
-  events: [],
-  errors: [],
-};
 
 export interface AgentData {
   agentId: BN;
