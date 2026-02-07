@@ -24,6 +24,16 @@ export default function Home() {
   const [showRegister, setShowRegister] = useState(false);
   const [registryInfo, setRegistryInfo] = useState<RegistryData | null>(null);
 
+  // Debug wallet state
+  useEffect(() => {
+    console.log("Home: Wallet state changed", {
+      connected: wallet.connected,
+      connecting: wallet.connecting,
+      publicKey: wallet.publicKey?.toBase58() || null,
+      walletName: wallet.wallet?.adapter?.name || null,
+    });
+  }, [wallet.connected, wallet.connecting, wallet.publicKey, wallet.wallet]);
+
   // WebSocket live events subscription
   const {
     events,
@@ -122,7 +132,10 @@ export default function Home() {
               <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)] status-live" />
               <span className="text-sm text-[var(--text-secondary)]">Devnet</span>
             </div>
-            <WalletMultiButton />
+            {/* suppressHydrationWarning: wallet state differs between server/client */}
+            <div suppressHydrationWarning>
+              <WalletMultiButton />
+            </div>
           </div>
         </div>
       </header>
@@ -380,7 +393,9 @@ export default function Home() {
             <p className="text-[var(--text-muted)] mb-6 max-w-md mx-auto">
               Connect your Solana wallet to view registered agents and create new entries
             </p>
-            <WalletMultiButton />
+            <div suppressHydrationWarning>
+              <WalletMultiButton />
+            </div>
           </div>
         ) : loading ? (
           <div className="text-center py-20">

@@ -71,9 +71,16 @@ export class MockWalletAdapter extends BaseMessageSignerWalletAdapter {
     }
 
     this._connecting = true;
+    console.log("MockWallet: Starting connect, publicKey:", this._publicKey?.toBase58());
+
+    // Small delay to ensure React state updates properly
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     try {
       this._connected = true;
+      console.log("MockWallet: Emitting connect event with publicKey:", this._publicKey?.toBase58());
       this.emit("connect", this._publicKey!);
+      console.log("MockWallet: Connect event emitted");
     } finally {
       this._connecting = false;
     }
