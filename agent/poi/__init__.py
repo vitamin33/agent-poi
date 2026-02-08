@@ -2,6 +2,7 @@
 from .model_verifier import compute_model_hash, verify_model, generate_demo_model_hash
 from .challenge_handler import ChallengeHandler
 from .evaluator import SLMEvaluator, EvaluationDomain, EvaluationResult
+from .llm_judge import LLMJudge, JudgeResult
 from .merkle_audit import (
     AuditBatcher,
     AuditEntry,
@@ -19,6 +20,8 @@ __all__ = [
     "SLMEvaluator",
     "EvaluationDomain",
     "EvaluationResult",
+    "LLMJudge",
+    "JudgeResult",
     "AuditBatcher",
     "AuditEntry",
     "ActionType",

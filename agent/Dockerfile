@@ -1,5 +1,6 @@
 # Agent Proof-of-Intelligence - Python Agent
 # Autonomous AI agent that proves its identity on Solana
+# Supports single-agent (main.py) or multi-agent (multi_main.py) mode
 
 FROM python:3.11-slim
 
@@ -25,12 +26,21 @@ ENV AGENT_CAPABILITIES="challenge-response,slm-evaluation,cross-agent-discovery"
 ENV API_HOST=0.0.0.0
 ENV API_PORT=8000
 
-# Expose API port
-EXPOSE 8000
+# Multi-agent mode: set MULTI_AGENT=true to run 3 agents in one process
+ENV MULTI_AGENT=false
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health')" || exit 1
+# Expose API port (Render uses PORT env var, default 10000)
+EXPOSE 8000 10000
 
-# Run the agent (Render provides PORT env var)
-CMD python main.py --host 0.0.0.0 --port ${PORT:-8000}
+# Health check - works for both modes
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import os, httpx; port=os.getenv('PORT', os.getenv('API_PORT','8000')); httpx.get(f'http://localhost:{port}/health')" || exit 1
+
+# Entrypoint script: choose single or multi-agent mode
+CMD if [ "$MULTI_AGENT" = "true" ]; then \
+        echo "Starting MULTI-AGENT mode (Alpha, Beta, Gamma on single port)"; \
+        python multi_main.py --host 0.0.0.0 --port ${PORT:-10000}; \
+    else \
+        echo "Starting SINGLE-AGENT mode"; \
+        python main.py --host 0.0.0.0 --port ${PORT:-8000}; \
+    fi

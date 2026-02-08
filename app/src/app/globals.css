@@ -385,3 +385,30 @@ h1, h2, h3, h4, h5, h6 {
 .animate-live-pulse {
   animation: livePulse 2s ease-in-out infinite;
 }
+
+/* A2A Network Animations */
+@keyframes a2aPulse {
+  0%, 100% {
+    filter: brightness(1) drop-shadow(0 0 0px transparent);
+  }
+  50% {
+    filter: brightness(1.2) drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
+  }
+}
+
+.animate-a2a-pulse {
+  animation: a2aPulse 1.5s ease-in-out;
+}
+
+@keyframes a2aDash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-a2a-dash {
+  animation: a2aDash 2s linear infinite;
+}

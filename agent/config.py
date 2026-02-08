@@ -46,6 +46,16 @@ AGENT_PERSONALITY = os.getenv("AGENT_PERSONALITY", "general")  # general, defi, 
 # Public URL of this agent (for A2A discovery)
 AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "")
 
+# LLM Judge configuration (for enhanced challenge scoring)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "gpt-4o-mini")
+# Default: enabled if API key is present, can be explicitly disabled
+_judge_env = os.getenv("LLM_JUDGE_ENABLED", "")
+if _judge_env:
+    LLM_JUDGE_ENABLED = _judge_env.lower() in ("true", "1", "yes")
+else:
+    LLM_JUDGE_ENABLED = bool(OPENAI_API_KEY)
+
 # API server configuration
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))

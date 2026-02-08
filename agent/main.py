@@ -43,8 +43,11 @@ from config import (
     AGENT_PEERS,
     AGENT_PERSONALITY,
     AGENT_PUBLIC_URL,
+    OPENAI_API_KEY,
+    LLM_JUDGE_ENABLED,
+    LLM_JUDGE_MODEL,
 )
-from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, SLMEvaluator, EvaluationDomain
+from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, SLMEvaluator, EvaluationDomain, LLMJudge
 from solana_client import AgentRegistryClient
 
 # Agent Configuration
@@ -66,6 +69,7 @@ logger = logging.getLogger(__name__)
 # Global state
 client: AgentRegistryClient = None
 challenge_handler: ChallengeHandler = None
+llm_judge: Optional[LLMJudge] = None
 agent_info: dict = None
 challenge_poll_task: Optional[asyncio.Task] = None
 self_eval_task: Optional[asyncio.Task] = None
@@ -181,7 +185,7 @@ async def run_self_evaluation():
                     response = challenge_handler.respond_to_challenge(question)
                     return response.answer
 
-                evaluator = SLMEvaluator(agent_response_fn=agent_respond)
+                evaluator = SLMEvaluator(agent_response_fn=agent_respond, llm_judge=llm_judge)
                 result = evaluator.evaluate(domain)
 
                 # Record result
@@ -193,6 +197,7 @@ async def run_self_evaluation():
                     "questions_correct": result.questions_correct,
                     "questions_total": result.questions_total,
                     "result_hash": result.result_hash,
+                    "judge_scores": result.judge_scores,
                 }
                 evaluation_history.append(eval_record)
 
@@ -563,12 +568,13 @@ class EvaluationResponse(BaseModel):
     time_taken_ms: int
     breakdown: dict
     result_hash: str
+    judge_scores: Optional[dict] = None  # Per-question LLM judge details
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler for startup/shutdown"""
-    global client, challenge_handler, agent_info, challenge_poll_task, self_eval_task, agent_startup_time, http_client
+    global client, challenge_handler, llm_judge, agent_info, challenge_poll_task, self_eval_task, agent_startup_time, http_client
 
     agent_startup_time = datetime.now(timezone.utc)
     http_client = httpx.AsyncClient(
@@ -597,6 +603,15 @@ async def lifespan(app: FastAPI):
     # Initialize challenge handler (demo mode, no real LLM)
     challenge_handler = ChallengeHandler(model_name=AGENT_NAME)
     logger.info(f"Challenge handler initialized for: {AGENT_NAME}")
+
+    # Initialize LLM Judge for intelligent scoring
+    llm_judge = LLMJudge(
+        api_key=OPENAI_API_KEY if OPENAI_API_KEY else None,
+        model=LLM_JUDGE_MODEL,
+        enabled=LLM_JUDGE_ENABLED,
+    )
+    judge_mode = "OpenAI" if llm_judge.is_llm_available else "fuzzy fallback"
+    logger.info(f"LLM Judge initialized: {judge_mode} (model: {LLM_JUDGE_MODEL})")
 
     # Compute model hash (demo mode uses generated hash)
     if MODEL_PATH and Path(MODEL_PATH).exists():
@@ -720,6 +735,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"    - Challenge polling: {'ENABLED' if ENABLE_AUTO_RESPONSE else 'DISABLED'}")
     logger.info(f"    - Self-evaluation: {'ENABLED' if ENABLE_SELF_EVALUATION else 'DISABLED'}")
     logger.info(f"    - Cross-agent challenges: {'ENABLED' if ENABLE_CROSS_AGENT_CHALLENGES else 'DISABLED'}")
+    logger.info(f"    - LLM Judge: {'OpenAI (' + LLM_JUDGE_MODEL + ')' if llm_judge and llm_judge.is_llm_available else 'Fuzzy fallback'}")
     logger.info(f"    - A2A Peers: {len(AGENT_PEERS)} configured {AGENT_PEERS}")
     logger.info(f"    - Personality: {AGENT_PERSONALITY}")
     logger.info(f"    - API: http://{API_HOST}:{API_PORT}")
@@ -1020,6 +1036,11 @@ async def health_check():
             "challenge_polling": ENABLE_AUTO_RESPONSE,
             "self_evaluation": ENABLE_SELF_EVALUATION,
             "cross_agent_challenges": ENABLE_CROSS_AGENT_CHALLENGES,
+            "llm_judge": {
+                "enabled": LLM_JUDGE_ENABLED,
+                "mode": "openai" if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
+                "model": LLM_JUDGE_MODEL,
+            },
             "activity_logging": True,
             "audit_trail": True,
         },
@@ -1060,6 +1081,11 @@ async def list_evaluation_domains():
         "domains": [d.value for d in EvaluationDomain],
         "passing_score": 60.0,
         "questions_per_domain": 5,
+        "judge": {
+            "enabled": LLM_JUDGE_ENABLED,
+            "mode": "openai" if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
+            "model": LLM_JUDGE_MODEL if (llm_judge and llm_judge.is_llm_available) else None,
+        },
     }
 
 
@@ -1116,19 +1142,25 @@ async def run_evaluation(domain: str, request: EvaluationRequest):
         return response.answer
 
     evaluator = SLMEvaluator(
-        agent_response_fn=agent_respond if request.answers is None else None
+        agent_response_fn=agent_respond if request.answers is None else None,
+        llm_judge=llm_judge,
     )
 
     # Run evaluation
     result = evaluator.evaluate(eval_domain, request.answers)
 
     # Log activity
+    judge_method = next(
+        (js["method"] for js in result.judge_scores.values()), "keyword"
+    ) if result.judge_scores else "keyword"
+
     agent_activity_log.append({
         "timestamp": datetime.utcnow().isoformat(),
         "action": "evaluation",
         "domain": domain,
         "score": result.score,
         "passed": result.passed,
+        "judge_method": judge_method,
     })
 
     return EvaluationResponse(
@@ -1140,6 +1172,7 @@ async def run_evaluation(domain: str, request: EvaluationRequest):
         time_taken_ms=result.time_taken_ms,
         breakdown=result.breakdown,
         result_hash=result.result_hash,
+        judge_scores=result.judge_scores if result.judge_scores else None,
     )
 
 

@@ -14,6 +14,7 @@ import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
 import { SecurityDashboard } from "@/components/SecurityDashboard";
 import { LiveEventsFeed } from "@/components/LiveEventsFeed";
+import { A2ANetworkView } from "@/components/A2ANetworkView";
 import { useSolanaEvents, SolanaEventType } from "@/hooks/useSolanaEvents";
 
 export default function Home() {
@@ -23,6 +24,25 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
   const [registryInfo, setRegistryInfo] = useState<RegistryData | null>(null);
+  const [a2aInteractionCount, setA2aInteractionCount] = useState<number>(0);
+
+  // Fetch A2A interaction count (independent of wallet)
+  useEffect(() => {
+    const fetchA2aCount = async () => {
+      try {
+        const res = await fetch("/api/a2a?endpoint=interactions");
+        if (res.ok) {
+          const data = await res.json();
+          setA2aInteractionCount(data.summary?.total_interactions ?? 0);
+        }
+      } catch {
+        // Agent may not be running - silently ignore
+      }
+    };
+    fetchA2aCount();
+    const interval = setInterval(fetchA2aCount, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Debug wallet state
   useEffect(() => {
@@ -204,7 +224,7 @@ export default function Home() {
         {/* Stats Dashboard */}
         {registryInfo && (
           <div className="mb-10">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-4">
               {/* Agents */}
               <div className="stat-card p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -281,6 +301,22 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* A2A Interactions */}
+              <div className="stat-card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#ec4899]">
+                    <circle cx="5" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+                    <circle cx="19" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+                    <circle cx="12" cy="5" r="3" stroke="currentColor" strokeWidth="2"/>
+                    <path d="M7.5 10.5L10.5 6.5M16.5 10.5L13.5 6.5M7 13L17 13" stroke="currentColor" strokeWidth="1.5"/>
+                  </svg>
+                  <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">A2A</span>
+                </div>
+                <div className="text-2xl font-bold text-[#ec4899]">
+                  {a2aInteractionCount}
+                </div>
+              </div>
+
               {/* Network */}
               <div className="stat-card p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -344,6 +380,11 @@ export default function Home() {
             />
           </div>
         )}
+
+        {/* A2A Network View - shown regardless of wallet connection */}
+        <div className="mb-10">
+          <A2ANetworkView />
+        </div>
 
         {/* Agent Leaderboard Section */}
         <div className="flex items-center justify-between mb-6">

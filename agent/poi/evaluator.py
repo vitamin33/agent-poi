@@ -12,9 +12,11 @@ Domains:
 import hashlib
 import time
 import logging
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 from enum import Enum
+
+from .llm_judge import LLMJudge, JudgeResult
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ class EvaluationResult:
     time_taken_ms: int
     breakdown: Dict[str, bool]
     result_hash: str
+    judge_scores: Dict[str, Any] = field(default_factory=dict)  # question_id -> {score, explanation, method}
 
 
 # Benchmark questions per domain
@@ -172,19 +175,27 @@ class SLMEvaluator:
     """
     Evaluator for agent intelligence benchmarks.
 
-    In production, this would use actual LLM inference to evaluate
-    agent responses. For demo, we use keyword matching.
+    Uses LLM-as-Judge when available (OpenAI API), otherwise falls back
+    to enhanced fuzzy matching via difflib. The judge provides nuanced
+    scoring (0-100) instead of binary pass/fail.
     """
 
-    def __init__(self, agent_response_fn: Optional[callable] = None):
+    def __init__(
+        self,
+        agent_response_fn: Optional[callable] = None,
+        llm_judge: Optional[LLMJudge] = None,
+    ):
         """
         Initialize the evaluator.
 
         Args:
             agent_response_fn: Function that takes a question and returns agent's answer.
                               If None, uses self-evaluation mode.
+            llm_judge: Optional LLMJudge instance for intelligent scoring.
+                      If None, uses legacy keyword matching.
         """
         self.agent_response_fn = agent_response_fn
+        self.llm_judge = llm_judge
 
     def evaluate(
         self,
@@ -224,14 +235,15 @@ class SLMEvaluator:
 
         # Score answers
         breakdown = {}
+        judge_scores = {}
         correct = 0
 
         for q in questions:
             agent_answer = agent_answers.get(q.id, "").lower().strip()
             expected = q.expected_answer.lower().strip()
 
-            # Simple keyword matching (production would use semantic similarity)
-            is_correct = self._check_answer(agent_answer, expected)
+            # Use LLM judge if available, otherwise fall back to keyword matching
+            is_correct = self._check_answer(agent_answer, expected, q.question, q.id, judge_scores)
             breakdown[q.id] = is_correct
 
             if is_correct:
@@ -242,7 +254,17 @@ class SLMEvaluator:
 
         # Calculate score
         total = len(questions)
-        score = (correct / total * 100) if total > 0 else 0
+
+        # If we have judge scores, use their average for a more nuanced score
+        if judge_scores:
+            avg_judge_score = sum(
+                js["score"] for js in judge_scores.values()
+            ) / len(judge_scores)
+            # Blend: use judge average as the primary score
+            score = avg_judge_score
+        else:
+            score = (correct / total * 100) if total > 0 else 0
+
         passed = score >= PASSING_SCORE
 
         # Create result hash for on-chain storage
@@ -260,29 +282,71 @@ class SLMEvaluator:
             time_taken_ms=time_taken_ms,
             breakdown=breakdown,
             result_hash=result_hash,
+            judge_scores=judge_scores,
         )
+
+        judge_method = next(
+            (js["method"] for js in judge_scores.values()), "keyword"
+        ) if judge_scores else "keyword"
 
         logger.info(
             f"Evaluation complete: {domain.value} | "
             f"Score: {score:.1f}% ({correct}/{total}) | "
-            f"{'PASSED' if passed else 'FAILED'}"
+            f"{'PASSED' if passed else 'FAILED'} | "
+            f"Judge: {judge_method}"
         )
 
         return result
 
-    def _check_answer(self, agent_answer: str, expected: str) -> bool:
+    def _check_answer(
+        self,
+        agent_answer: str,
+        expected: str,
+        question: str = "",
+        question_id: str = "",
+        judge_scores: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """
         Check if agent answer matches expected.
 
-        Uses keyword matching for demo. Production would use:
-        - Semantic similarity (embeddings)
-        - LLM-as-judge
-        - Structured answer parsing
+        Uses LLM-as-Judge when available for nuanced scoring (0-100).
+        Falls back to enhanced fuzzy matching, then legacy keyword matching.
+
+        Args:
+            agent_answer: The agent's answer (lowered, stripped).
+            expected: The expected answer (lowered, stripped).
+            question: Original question text (for LLM judge context).
+            question_id: Question ID (for recording judge scores).
+            judge_scores: Dict to populate with per-question judge details.
+
+        Returns:
+            True if the answer is considered correct.
         """
         if not agent_answer:
+            if judge_scores is not None and question_id:
+                judge_scores[question_id] = {
+                    "score": 0,
+                    "explanation": "Empty answer",
+                    "method": "none",
+                }
             return False
 
-        # Check for key terms
+        # Use LLM judge if available
+        if self.llm_judge is not None:
+            result = self.llm_judge.judge(question, expected, agent_answer)
+
+            if judge_scores is not None and question_id:
+                judge_scores[question_id] = {
+                    "score": result.score,
+                    "explanation": result.explanation,
+                    "method": result.method,
+                    "cached": result.cached,
+                }
+
+            # Score >= 50 counts as correct for the binary breakdown
+            return result.score >= 50
+
+        # Legacy keyword matching fallback (no judge configured)
         expected_terms = expected.split()
         matches = sum(1 for term in expected_terms if term in agent_answer)
 
