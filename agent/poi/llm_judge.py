@@ -44,32 +44,35 @@ class LLMJudge:
     """
     LLM-as-Judge for evaluating agent answers.
 
-    Uses OpenAI API when available, falls back to enhanced fuzzy matching.
+    Supports Anthropic (Claude) and OpenAI APIs, falls back to enhanced fuzzy matching.
     Results are cached to avoid duplicate API calls.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-4o-mini",
+        model: str = "claude-haiku-4-5-20251001",
         enabled: bool = True,
+        provider: str = "anthropic",
     ):
         """
         Initialize the LLM Judge.
 
         Args:
-            api_key: OpenAI API key. If None, uses fuzzy fallback only.
-            model: OpenAI model to use for judging.
+            api_key: API key (Anthropic or OpenAI). If None, uses fuzzy fallback only.
+            model: Model to use for judging.
             enabled: Whether the judge is enabled at all.
+            provider: "anthropic" or "openai".
         """
         self.api_key = api_key
         self.model = model
         self.enabled = enabled
+        self.provider = provider
         self._cache: Dict[str, CacheEntry] = {}
         self._llm_available = bool(api_key) and enabled
 
         if self._llm_available:
-            logger.info(f"LLM Judge initialized with model: {model}")
+            logger.info(f"LLM Judge initialized: provider={provider}, model={model}")
         else:
             reason = "disabled" if not enabled else "no API key"
             logger.info(f"LLM Judge using fuzzy fallback ({reason})")
@@ -226,96 +229,113 @@ class LLMJudge:
             logger.debug(f"Failed to parse LLM judge response: {e}, text: {text[:200]}")
             return None
 
+    def _build_api_request(self, prompt: str) -> tuple[str, dict, dict]:
+        """Build API request based on provider. Returns (url, headers, json_body)."""
+        if self.provider == "anthropic":
+            return (
+                "https://api.anthropic.com/v1/messages",
+                {
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                {
+                    "model": self.model,
+                    "max_tokens": 150,
+                    "system": "You are a precise scoring judge. Always respond with valid JSON only.",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                },
+            )
+        else:  # openai
+            return (
+                "https://api.openai.com/v1/chat/completions",
+                {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": "You are a precise scoring judge. Always respond with valid JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 150,
+                },
+            )
+
+    def _extract_text_from_response(self, data: dict) -> str:
+        """Extract text content from API response based on provider."""
+        if self.provider == "anthropic":
+            return data["content"][0]["text"]
+        else:  # openai
+            return data["choices"][0]["message"]["content"]
+
     def _judge_with_llm(self, question: str, expected: str, answer: str) -> Optional[JudgeResult]:
         """
-        Judge using OpenAI API (synchronous via httpx).
+        Judge using LLM API (synchronous via httpx).
 
+        Supports both Anthropic and OpenAI providers.
         Returns None if the API call fails.
         """
         prompt = self._build_prompt(question, expected, answer)
+        url, headers, body = self._build_api_request(prompt)
 
         try:
             with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": "You are a precise scoring judge. Always respond with valid JSON only."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 150,
-                    },
-                )
+                response = client.post(url, headers=headers, json=body)
 
             if response.status_code != 200:
-                logger.warning(f"OpenAI API returned {response.status_code}: {response.text[:200]}")
+                logger.warning(f"{self.provider} API returned {response.status_code}: {response.text[:200]}")
                 return None
 
             data = response.json()
-            text = data["choices"][0]["message"]["content"]
+            text = self._extract_text_from_response(data)
             parsed = self._parse_llm_response(text)
 
             if parsed is None:
                 return None
 
             score, explanation = parsed
-            logger.debug(f"LLM judge: score={score}, explanation={explanation}")
+            logger.debug(f"LLM judge ({self.provider}): score={score}, explanation={explanation}")
             return JudgeResult(score=score, explanation=explanation, method="llm")
 
         except Exception as e:
-            logger.warning(f"LLM judge error: {e}")
+            logger.warning(f"LLM judge error ({self.provider}): {e}")
             return None
 
     async def _ajudge_with_llm(self, question: str, expected: str, answer: str) -> Optional[JudgeResult]:
         """
-        Judge using OpenAI API (async via httpx).
+        Judge using LLM API (async via httpx).
 
+        Supports both Anthropic and OpenAI providers.
         Returns None if the API call fails.
         """
         prompt = self._build_prompt(question, expected, answer)
+        url, headers, body = self._build_api_request(prompt)
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": "You are a precise scoring judge. Always respond with valid JSON only."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 150,
-                    },
-                )
+                response = await client.post(url, headers=headers, json=body)
 
             if response.status_code != 200:
-                logger.warning(f"OpenAI API returned {response.status_code}: {response.text[:200]}")
+                logger.warning(f"{self.provider} API returned {response.status_code}: {response.text[:200]}")
                 return None
 
             data = response.json()
-            text = data["choices"][0]["message"]["content"]
+            text = self._extract_text_from_response(data)
             parsed = self._parse_llm_response(text)
 
             if parsed is None:
                 return None
 
             score, explanation = parsed
-            logger.debug(f"LLM judge (async): score={score}, explanation={explanation}")
+            logger.debug(f"LLM judge async ({self.provider}): score={score}, explanation={explanation}")
             return JudgeResult(score=score, explanation=explanation, method="llm")
 
         except Exception as e:
-            logger.warning(f"LLM judge async error: {e}")
+            logger.warning(f"LLM judge async error ({self.provider}): {e}")
             return None
 
     def _judge_fuzzy(self, question: str, expected: str, answer: str) -> JudgeResult:

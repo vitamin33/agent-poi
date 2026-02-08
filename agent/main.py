@@ -43,9 +43,11 @@ from config import (
     AGENT_PEERS,
     AGENT_PERSONALITY,
     AGENT_PUBLIC_URL,
+    ANTHROPIC_API_KEY,
     OPENAI_API_KEY,
     LLM_JUDGE_ENABLED,
     LLM_JUDGE_MODEL,
+    LLM_JUDGE_PROVIDER,
 )
 from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, SLMEvaluator, EvaluationDomain, LLMJudge
 from solana_client import AgentRegistryClient
@@ -605,13 +607,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"Challenge handler initialized for: {AGENT_NAME}")
 
     # Initialize LLM Judge for intelligent scoring
+    _api_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
     llm_judge = LLMJudge(
-        api_key=OPENAI_API_KEY if OPENAI_API_KEY else None,
+        api_key=_api_key,
         model=LLM_JUDGE_MODEL,
         enabled=LLM_JUDGE_ENABLED,
+        provider=LLM_JUDGE_PROVIDER or "anthropic",
     )
-    judge_mode = "OpenAI" if llm_judge.is_llm_available else "fuzzy fallback"
-    logger.info(f"LLM Judge initialized: {judge_mode} (model: {LLM_JUDGE_MODEL})")
+    judge_mode = f"{LLM_JUDGE_PROVIDER} ({LLM_JUDGE_MODEL})" if llm_judge.is_llm_available else "fuzzy fallback"
+    logger.info(f"LLM Judge initialized: {judge_mode}")
 
     # Compute model hash (demo mode uses generated hash)
     if MODEL_PATH and Path(MODEL_PATH).exists():
@@ -735,7 +739,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"    - Challenge polling: {'ENABLED' if ENABLE_AUTO_RESPONSE else 'DISABLED'}")
     logger.info(f"    - Self-evaluation: {'ENABLED' if ENABLE_SELF_EVALUATION else 'DISABLED'}")
     logger.info(f"    - Cross-agent challenges: {'ENABLED' if ENABLE_CROSS_AGENT_CHALLENGES else 'DISABLED'}")
-    logger.info(f"    - LLM Judge: {'OpenAI (' + LLM_JUDGE_MODEL + ')' if llm_judge and llm_judge.is_llm_available else 'Fuzzy fallback'}")
+    logger.info(f"    - LLM Judge: {LLM_JUDGE_PROVIDER + ' (' + LLM_JUDGE_MODEL + ')' if llm_judge and llm_judge.is_llm_available else 'Fuzzy fallback'}")
     logger.info(f"    - A2A Peers: {len(AGENT_PEERS)} configured {AGENT_PEERS}")
     logger.info(f"    - Personality: {AGENT_PERSONALITY}")
     logger.info(f"    - API: http://{API_HOST}:{API_PORT}")
@@ -1038,7 +1042,7 @@ async def health_check():
             "cross_agent_challenges": ENABLE_CROSS_AGENT_CHALLENGES,
             "llm_judge": {
                 "enabled": LLM_JUDGE_ENABLED,
-                "mode": "openai" if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
+                "provider": LLM_JUDGE_PROVIDER if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
                 "model": LLM_JUDGE_MODEL,
             },
             "activity_logging": True,
@@ -1083,7 +1087,7 @@ async def list_evaluation_domains():
         "questions_per_domain": 5,
         "judge": {
             "enabled": LLM_JUDGE_ENABLED,
-            "mode": "openai" if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
+            "provider": LLM_JUDGE_PROVIDER if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
             "model": LLM_JUDGE_MODEL if (llm_judge and llm_judge.is_llm_available) else None,
         },
     }

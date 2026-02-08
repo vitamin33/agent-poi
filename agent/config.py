@@ -47,14 +47,28 @@ AGENT_PERSONALITY = os.getenv("AGENT_PERSONALITY", "general")  # general, defi, 
 AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "")
 
 # LLM Judge configuration (for enhanced challenge scoring)
+# Supports both Anthropic (preferred) and OpenAI APIs
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "gpt-4o-mini")
-# Default: enabled if API key is present, can be explicitly disabled
+LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "")  # Auto-detected from provider
+LLM_JUDGE_PROVIDER = ""  # "anthropic", "openai", or ""
+if ANTHROPIC_API_KEY:
+    LLM_JUDGE_PROVIDER = "anthropic"
+    if not LLM_JUDGE_MODEL:
+        LLM_JUDGE_MODEL = "claude-haiku-4-5-20251001"
+elif OPENAI_API_KEY:
+    LLM_JUDGE_PROVIDER = "openai"
+    if not LLM_JUDGE_MODEL:
+        LLM_JUDGE_MODEL = "gpt-4o-mini"
+else:
+    if not LLM_JUDGE_MODEL:
+        LLM_JUDGE_MODEL = "fuzzy"
+# Judge is always enabled (fuzzy fallback when no API key), can be explicitly disabled
 _judge_env = os.getenv("LLM_JUDGE_ENABLED", "")
 if _judge_env:
     LLM_JUDGE_ENABLED = _judge_env.lower() in ("true", "1", "yes")
 else:
-    LLM_JUDGE_ENABLED = bool(OPENAI_API_KEY)
+    LLM_JUDGE_ENABLED = True  # Always on - uses fuzzy fallback when no API key
 
 # API server configuration
 API_HOST = os.getenv("API_HOST", "0.0.0.0")

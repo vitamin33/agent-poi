@@ -24,6 +24,7 @@ services:
       - AGENT_PUBLIC_URL=http://agent-alpha:8000
       - AGENT_PEERS=http://agent-beta:8000,http://agent-gamma:8000
       - WALLET_PATH=/app/wallets/alpha.json
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
       - ./agent/wallets:/app/wallets:ro
     healthcheck:
