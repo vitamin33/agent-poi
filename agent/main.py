@@ -251,6 +251,7 @@ async def discover_peers():
                     "status": "online",
                     "last_seen": datetime.now(timezone.utc).isoformat(),
                     "agent_id": status.get("agent_id", -1),
+                    "owner": status.get("owner", ""),
                     "reputation": status.get("reputation_score", 0),
                     "verified": status.get("verified", False),
                     "version": health.get("agent_version", "unknown"),
@@ -442,8 +443,12 @@ async def autonomous_cross_agent_challenges():
             on_chain_tx = None
             if peer_answer_hash:
                 try:
-                    # Discover target's on-chain PDA
-                    discovered = await client.discover_agents(max_agents=20)
+                    # Discover target's on-chain PDA using known peer owner pubkeys
+                    known_owners = [
+                        p["owner"] for p in peer_registry.values()
+                        if p.get("owner") and p.get("status") == "online"
+                    ]
+                    discovered = await client.discover_agents(max_agents=20, known_owners=known_owners)
                     target_on_chain = None
                     for a in discovered:
                         if a["name"] == peer["name"]:
@@ -535,6 +540,7 @@ class AgentStatus(BaseModel):
     model_hash: str
     capabilities: str
     agent_id: int
+    owner: str
     reputation_score: int
     challenges_passed: int
     challenges_failed: int
@@ -611,9 +617,15 @@ async def lifespan(app: FastAPI):
         await client.connect()
 
         # First, check if we already have an agent registered under our wallet
-        # Try different agent IDs since we might have registered previously
+        # Get total_agents to know the full range to scan
+        try:
+            registry_state = await client.get_registry_state()
+            scan_range = registry_state["total_agents"] + 1
+        except Exception:
+            scan_range = 20
+
         agent_info = None
-        for try_agent_id in range(10):  # Check first 10 possible agent IDs
+        for try_agent_id in range(scan_range):
             try:
                 existing_agent = await client.get_agent(client.keypair.pubkey(), try_agent_id)
                 if existing_agent:
@@ -633,14 +645,31 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info(f"Agent registered on-chain: {result['agent_pda']} (tx: {result['tx']})")
 
-                # Wait a moment for transaction to confirm
-                await asyncio.sleep(2)
+                # Retry fetching the agent with backoff (devnet needs confirmation time)
+                for attempt in range(5):
+                    await asyncio.sleep(3)
+                    try:
+                        agent_info = await client.get_agent(
+                            client.keypair.pubkey(),
+                            result["agent_id"]
+                        )
+                        logger.info(f"Agent fetched on attempt {attempt + 1}")
+                        break
+                    except Exception as fetch_err:
+                        logger.warning(f"Fetch attempt {attempt + 1}/5 failed: {fetch_err}")
 
-                # Fetch the newly registered agent
-                agent_info = await client.get_agent(
-                    client.keypair.pubkey(),
-                    result["agent_id"]
-                )
+                if agent_info is None:
+                    logger.warning("Could not fetch agent after registration, using defaults")
+                    agent_info = {
+                        "name": AGENT_NAME,
+                        "model_hash": model_hash,
+                        "capabilities": AGENT_CAPABILITIES,
+                        "agent_id": result["agent_id"],
+                        "reputation_score": 5000,
+                        "challenges_passed": 0,
+                        "challenges_failed": 0,
+                        "verified": False,
+                    }
             except Exception as e:
                 logger.error(f"Failed to register agent: {e}")
                 agent_info = {
@@ -779,6 +808,7 @@ async def get_status():
         model_hash=agent_info["model_hash"],
         capabilities=agent_info["capabilities"],
         agent_id=agent_info["agent_id"],
+        owner=agent_info.get("owner", str(client.keypair.pubkey()) if client else "unknown"),
         reputation_score=agent_info["reputation_score"],
         challenges_passed=agent_info["challenges_passed"],
         challenges_failed=agent_info["challenges_failed"],

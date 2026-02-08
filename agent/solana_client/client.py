@@ -249,15 +249,16 @@ class AgentRegistryClient:
             "expires_at": challenge.expires_at,
         }
 
-    async def discover_agents(self, max_agents: int = 50) -> list[dict]:
+    async def discover_agents(self, max_agents: int = 50, known_owners: list[str] = None) -> list[dict]:
         """
         Discover all registered agents on the network.
 
         This is KEY for autonomous agent-to-agent interaction.
-        The agent uses this to find other agents to challenge.
+        Scans agents by known owner pubkeys (admin + peers).
 
         Args:
             max_agents: Maximum number of agents to fetch
+            known_owners: Additional owner pubkeys to scan (from peer registry)
 
         Returns:
             List of agent dictionaries
@@ -266,18 +267,35 @@ class AgentRegistryClient:
         total_agents = registry_state["total_agents"]
         admin = Pubkey.from_string(registry_state["admin"])
 
-        agents = []
-        for i in range(min(total_agents, max_agents)):
-            try:
-                agent = await self.get_agent(admin, i)
-                agent["pda"] = str(self._get_agent_pda(admin, i)[0])
-                agent["index"] = i
-                agents.append(agent)
-            except Exception as e:
-                logger.debug(f"Failed to fetch agent {i}: {e}")
-                continue
+        # Build list of owner pubkeys to scan
+        owners = [admin]
+        if known_owners:
+            for owner_str in known_owners:
+                try:
+                    owners.append(Pubkey.from_string(owner_str))
+                except Exception:
+                    pass
+        # Also include ourselves
+        if self.keypair.pubkey() not in owners:
+            owners.append(self.keypair.pubkey())
 
-        logger.info(f"Discovered {len(agents)} agents on network")
+        agents = []
+        seen_pdas = set()
+
+        for owner in owners:
+            for i in range(min(total_agents + 1, max_agents)):
+                try:
+                    agent = await self.get_agent(owner, i)
+                    pda = str(self._get_agent_pda(owner, i)[0])
+                    if pda not in seen_pdas:
+                        agent["pda"] = pda
+                        agent["index"] = i
+                        agents.append(agent)
+                        seen_pdas.add(pda)
+                except Exception:
+                    continue
+
+        logger.info(f"Discovered {len(agents)} agents on network (scanned {len(owners)} owners)")
         return agents
 
     async def create_challenge_for_agent(
