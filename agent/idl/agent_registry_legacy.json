@@ -34,6 +34,10 @@
         {
           "name": "expectedHash",
           "type": "string"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
         }
       ]
     },
@@ -52,6 +56,53 @@
         },
         {
           "name": "collection",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "expireChallenge",
+      "accounts": [
+        {
+          "name": "caller",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "registry",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "agent",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "challenge",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "getAuditStatus",
+      "accounts": [
+        {
+          "name": "agent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "auditSummary",
           "isMut": false,
           "isSigner": false
         }
@@ -78,6 +129,52 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "logAudit",
+      "accounts": [
+        {
+          "name": "actor",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "agent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "auditSummary",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "auditEntry",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "actionType",
+          "type": {
+            "defined": "ActionType"
+          }
+        },
+        {
+          "name": "contextRisk",
+          "type": "u8"
+        },
+        {
+          "name": "detailsHash",
+          "type": "string"
+        }
+      ]
     },
     {
       "name": "registerAgent",
@@ -124,6 +221,51 @@
       ]
     },
     {
+      "name": "storeMerkleAudit",
+      "accounts": [
+        {
+          "name": "owner",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "agent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "auditSummary",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "auditRoot",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "merkleRoot",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "entriesCount",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "submitResponse",
       "accounts": [
         {
@@ -151,6 +293,10 @@
         {
           "name": "responseHash",
           "type": "string"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
         }
       ]
     },
@@ -293,6 +439,94 @@
       }
     },
     {
+      "name": "AgentAuditSummary",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "totalEntries",
+            "type": "u64"
+          },
+          {
+            "name": "securityAlerts",
+            "type": "u32"
+          },
+          {
+            "name": "avgRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "maxRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "lastAuditAt",
+            "type": "i64"
+          },
+          {
+            "name": "safeStreak",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuditEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "actor",
+            "type": "publicKey"
+          },
+          {
+            "name": "actionType",
+            "type": {
+              "defined": "ActionType"
+            }
+          },
+          {
+            "name": "riskScore",
+            "type": "u8"
+          },
+          {
+            "name": "riskLevel",
+            "type": {
+              "defined": "RiskLevel"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "detailsHash",
+            "type": "string"
+          },
+          {
+            "name": "auditIndex",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "Challenge",
       "type": {
         "kind": "struct",
@@ -332,6 +566,75 @@
             "type": "i64"
           },
           {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MerkleAuditRoot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "merkleRoot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "entriesCount",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "batchIndex",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MerkleAuditSummary",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "totalBatches",
+            "type": "u64"
+          },
+          {
+            "name": "totalEntries",
+            "type": "u64"
+          },
+          {
+            "name": "lastBatchAt",
+            "type": "i64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -368,6 +671,44 @@
     }
   ],
   "types": [
+    {
+      "name": "ActionType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "AgentRegistered"
+          },
+          {
+            "name": "AgentUpdated"
+          },
+          {
+            "name": "AgentVerified"
+          },
+          {
+            "name": "ChallengeCreated"
+          },
+          {
+            "name": "ChallengePassed"
+          },
+          {
+            "name": "ChallengeFailed"
+          },
+          {
+            "name": "ReputationIncreased"
+          },
+          {
+            "name": "ReputationDecreased"
+          },
+          {
+            "name": "SecurityAlert"
+          },
+          {
+            "name": "Custom"
+          }
+        ]
+      }
+    },
     {
       "name": "AgentAccount",
       "type": {
@@ -429,6 +770,130 @@
       }
     },
     {
+      "name": "AgentAuditSummary",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "totalEntries",
+            "type": "u64"
+          },
+          {
+            "name": "securityAlerts",
+            "type": "u32"
+          },
+          {
+            "name": "avgRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "maxRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "lastAuditAt",
+            "type": "i64"
+          },
+          {
+            "name": "safeStreak",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuditEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "actor",
+            "type": "publicKey"
+          },
+          {
+            "name": "actionType",
+            "type": {
+              "defined": "ActionType"
+            }
+          },
+          {
+            "name": "riskScore",
+            "type": "u8"
+          },
+          {
+            "name": "riskLevel",
+            "type": {
+              "defined": "RiskLevel"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "detailsHash",
+            "type": "string"
+          },
+          {
+            "name": "auditIndex",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuditStatusResponse",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "totalEntries",
+            "type": "u64"
+          },
+          {
+            "name": "securityAlerts",
+            "type": "u32"
+          },
+          {
+            "name": "avgRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "maxRiskScore",
+            "type": "u8"
+          },
+          {
+            "name": "safeStreak",
+            "type": "u32"
+          },
+          {
+            "name": "isTrusted",
+            "type": "bool"
+          },
+          {
+            "name": "lastAuditAt",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Challenge",
       "type": {
         "kind": "struct",
@@ -468,6 +933,10 @@
             "type": "i64"
           },
           {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -490,6 +959,71 @@
           },
           {
             "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MerkleAuditRoot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "merkleRoot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "entriesCount",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "batchIndex",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MerkleAuditSummary",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "publicKey"
+          },
+          {
+            "name": "totalBatches",
+            "type": "u64"
+          },
+          {
+            "name": "totalEntries",
+            "type": "u64"
+          },
+          {
+            "name": "lastBatchAt",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -518,6 +1052,29 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RiskLevel",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "None"
+          },
+          {
+            "name": "Low"
+          },
+          {
+            "name": "Medium"
+          },
+          {
+            "name": "High"
+          },
+          {
+            "name": "Critical"
           }
         ]
       }
@@ -603,9 +1160,29 @@
       "code": 6015,
       "name": "ChallengeMismatch",
       "msg": "Challenge does not match the agent"
+    },
+    {
+      "code": 6016,
+      "name": "ChallengeNotExpired",
+      "msg": "Challenge has not expired yet"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidDetailsHash",
+      "msg": "Details hash must be 64 hex characters (SHA256)"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidRiskScore",
+      "msg": "Risk score must be 0-100"
+    },
+    {
+      "code": 6019,
+      "name": "AuditSummaryNotFound",
+      "msg": "Audit summary not found for this agent"
     }
   ],
   "metadata": {
-    "address": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38"
+    "address": "3uyQZnuT9BLQZnf7keeZkUPQa7Djgb14fgMZwEZNsiQ1"
   }
 }

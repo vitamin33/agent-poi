@@ -98,3 +98,24 @@ def generate_demo_model_hash(seed: str = "demo-agent") -> str:
     a large GGUF download.
     """
     return f"sha256:{hashlib.sha256(seed.encode()).hexdigest()}"
+
+
+def generate_model_identifier_hash(provider: str, model: str) -> str:
+    """
+    Generate a deterministic hash from a model provider/name identifier.
+
+    This creates a unique, verifiable hash for API-based models that don't
+    have a local file to hash. The hash represents the specific model version
+    the agent claims to use.
+
+    Args:
+        provider: Model provider (e.g., "anthropic", "openai", "meta")
+        model: Model name (e.g., "claude-haiku-4-5", "gpt-4o-mini")
+
+    Returns:
+        Hash string in format "sha256:<hex_digest>"
+    """
+    identifier = f"{provider}/{model}"
+    hex_digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()
+    logger.info(f"Model identifier hash: {identifier} -> sha256:{hex_digest[:16]}...")
+    return f"sha256:{hex_digest}"

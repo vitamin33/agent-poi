@@ -10,11 +10,11 @@ import {
   fetchRegistryState,
   fetchAllAgents,
 } from "@/lib/program";
-import { AgentCard } from "@/components/AgentCard";
 import { RegisterForm } from "@/components/RegisterForm";
 import { SecurityDashboard } from "@/components/SecurityDashboard";
 import { LiveEventsFeed } from "@/components/LiveEventsFeed";
 import { A2ANetworkView } from "@/components/A2ANetworkView";
+import { CertificationView } from "@/components/CertificationView";
 import { useSolanaEvents, SolanaEventType } from "@/hooks/useSolanaEvents";
 
 export default function Home() {
@@ -224,7 +224,7 @@ export default function Home() {
         {/* Stats Dashboard */}
         {registryInfo && (
           <div className="mb-10">
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
               {/* Agents */}
               <div className="stat-card p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -268,36 +268,16 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Pass Rate */}
+              {/* On-Chain Challenges */}
               <div className="stat-card p-4">
                 <div className="flex items-center justify-between mb-2">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#f59e0b]">
-                    <path d="M18 20V10M12 20V4M6 20v-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Pass Rate</span>
-                </div>
-                <div className="text-2xl font-bold text-[#f59e0b]">
-                  {agents.length > 0
-                    ? Math.round(
-                        (agents.reduce((sum, a) => sum + a.challengesPassed, 0) /
-                        Math.max(1, agents.reduce((sum, a) => sum + a.challengesPassed + a.challengesFailed, 0))) * 100
-                      ) + "%"
-                    : "0%"}
-                </div>
-              </div>
-
-              {/* Avg Score */}
-              <div className="stat-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#a855f7]">
                     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Avg Score</span>
+                  <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Certified</span>
                 </div>
-                <div className="text-2xl font-bold text-[#a855f7]">
-                  {agents.length > 0
-                    ? (agents.reduce((sum, a) => sum + a.reputationScore, 0) / agents.length / 100).toFixed(1)
-                    : "0"}
+                <div className="text-2xl font-bold text-[#f59e0b]">
+                  3
                 </div>
               </div>
 
@@ -386,95 +366,34 @@ export default function Home() {
           <A2ANetworkView />
         </div>
 
-        {/* Agent Leaderboard Section */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Agent Leaderboard</h2>
-            <p className="text-sm text-[var(--text-muted)]">Ranked by reputation score</p>
-          </div>
-          {wallet.publicKey && (
-            <button
-              onClick={() => setShowRegister(!showRegister)}
-              className={`btn-primary px-6 py-3 rounded-xl text-sm font-semibold ${showRegister ? "opacity-70" : ""}`}
-            >
-              {showRegister ? "Close Form" : "+ Register Agent"}
-            </button>
-          )}
+        {/* Intelligence Certification Leaderboard */}
+        <div className="mb-10">
+          <CertificationView />
         </div>
 
-        {/* Register Form */}
-        {showRegister && wallet.publicKey && (
-          <div className="mb-8 p-6 rounded-xl bg-[var(--bg-elevated)] border border-[rgba(0,240,255,0.1)]">
-            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />
-              Register New Agent
-            </h3>
-            <RegisterForm
-              onSuccess={() => {
-                setShowRegister(false);
-                loadAgents();
-              }}
-            />
-          </div>
-        )}
-
-        {/* Agent Grid */}
-        {!wallet.publicKey ? (
-          <div className="text-center py-20">
-            <div className="relative w-24 h-24 mx-auto mb-6">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] opacity-20 animate-pulse" />
-              <div className="absolute inset-4 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[var(--accent-primary)]">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" strokeWidth="2"/>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" strokeWidth="2"/>
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-xl font-semibold mb-2">Connect Your Wallet</h3>
-            <p className="text-[var(--text-muted)] mb-6 max-w-md mx-auto">
-              Connect your Solana wallet to view registered agents and create new entries
-            </p>
-            <div suppressHydrationWarning>
-              <WalletMultiButton />
-            </div>
-          </div>
-        ) : loading ? (
-          <div className="text-center py-20">
-            <div className="relative w-16 h-16 mx-auto mb-6">
-              <div className="absolute inset-0 rounded-full border-4 border-[var(--bg-surface)]" />
-              <div className="absolute inset-0 rounded-full border-4 border-t-[var(--accent-primary)] animate-spin" />
-            </div>
-            <p className="text-[var(--text-muted)]">Loading agents from Solana...</p>
-          </div>
-        ) : agents.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="relative w-24 h-24 mx-auto mb-6">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] opacity-20" />
-              <div className="absolute inset-4 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center text-4xl">
-                🤖
-              </div>
-            </div>
-            <h3 className="text-xl font-semibold mb-2">No Agents Registered</h3>
-            <p className="text-[var(--text-muted)] mb-6 max-w-md mx-auto">
-              Be the first to register an AI agent on-chain and establish its verified identity
-            </p>
+        {/* Register Agent */}
+        {wallet.publicKey && (
+          <div>
             <button
-              onClick={() => setShowRegister(true)}
-              className="btn-primary px-8 py-3 rounded-xl text-sm font-semibold"
+              onClick={() => setShowRegister(!showRegister)}
+              className={`btn-secondary px-5 py-2.5 rounded-lg text-sm font-medium ${showRegister ? "opacity-70" : ""}`}
             >
-              Register First Agent
+              {showRegister ? "Close Form" : "+ Register New Agent"}
             </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {agents.map((agent, idx) => (
-              <AgentCard
-                key={agent.agentId.toString()}
-                agent={agent}
-                rank={idx + 1}
-                onChallengeCreated={loadAgents}
-              />
-            ))}
+            {showRegister && (
+              <div className="mt-4 p-6 rounded-xl bg-[var(--bg-elevated)] border border-[rgba(0,240,255,0.1)]">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />
+                  Register New Agent
+                </h3>
+                <RegisterForm
+                  onSuccess={() => {
+                    setShowRegister(false);
+                    loadAgents();
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 

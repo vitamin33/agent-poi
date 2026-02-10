@@ -169,6 +169,15 @@ export function useSolanaEvents(
 
     const subscribe = async () => {
       try {
+        // Suppress noisy WebSocket errors from Solana public devnet RPC
+        const origConsoleError = console.error;
+        const wsErrorFilter = (...args: unknown[]) => {
+          const msg = String(args[0] ?? "");
+          if (msg.includes("ws error") || msg.includes("WebSocket")) return;
+          origConsoleError.apply(console, args);
+        };
+        console.error = wsErrorFilter;
+
         // Subscribe to all program accounts
         const subscriptionId = connection.onProgramAccountChange(
           PROGRAM_ID,
@@ -189,7 +198,8 @@ export function useSolanaEvents(
         console.log("WebSocket subscribed to program:", PROGRAM_ID.toBase58());
 
       } catch (error) {
-        console.error("WebSocket subscription failed:", error);
+        // WebSocket subscription failures are non-critical - devnet RPC is flaky
+        console.debug("WebSocket subscription unavailable:", error);
         setIsConnected(false);
 
         addEvent("connection_status", {

@@ -1,6 +1,8 @@
 """Solana client for interacting with the Agent Registry program"""
+import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -87,13 +89,14 @@ class AgentRegistryClient:
             self.program_id
         )
 
-    def _get_challenge_pda(self, agent: Pubkey, challenger: Pubkey) -> tuple[Pubkey, int]:
-        """Get a challenge PDA"""
+    def _get_challenge_pda(self, agent: Pubkey, challenger: Pubkey, nonce: int = 0) -> tuple[Pubkey, int]:
+        """Get a challenge PDA (nonce enables multiple challenges per agent-challenger pair)"""
         return Pubkey.find_program_address(
             [
                 b"challenge",
                 bytes(agent),
                 bytes(challenger),
+                nonce.to_bytes(8, "little"),
             ],
             self.program_id
         )
@@ -115,6 +118,89 @@ class AgentRegistryClient:
             ],
             self.program_id
         )
+
+    def _get_audit_summary_pda(self, agent: Pubkey) -> tuple[Pubkey, int]:
+        """Get the audit summary PDA for an agent"""
+        return Pubkey.find_program_address(
+            [b"audit_summary", bytes(agent)],
+            self.program_id
+        )
+
+    def _get_audit_entry_pda(self, agent: Pubkey, audit_index: int) -> tuple[Pubkey, int]:
+        """Get an audit entry PDA"""
+        return Pubkey.find_program_address(
+            [
+                b"audit",
+                bytes(agent),
+                audit_index.to_bytes(8, "little"),
+            ],
+            self.program_id
+        )
+
+    async def get_audit_summary(self, agent_pda: Pubkey) -> Optional[dict]:
+        """Get the audit summary for an agent."""
+        summary_pda, _ = self._get_audit_summary_pda(agent_pda)
+        try:
+            summary = await self.program.account["AgentAuditSummary"].fetch(summary_pda)
+            return {
+                "total_entries": summary.total_entries,
+                "security_alerts": summary.security_alerts,
+                "avg_risk_score": summary.avg_risk_score,
+                "max_risk_score": summary.max_risk_score,
+                "safe_streak": summary.safe_streak,
+            }
+        except Exception:
+            return None
+
+    async def log_audit(
+        self,
+        agent_id: int,
+        action_type: int,
+        context_risk: int,
+        details_hash: str,
+    ) -> str:
+        """
+        Log an audit entry on-chain.
+
+        Args:
+            agent_id: The agent's ID
+            action_type: ActionType enum value (4 = EvaluationCompleted)
+            context_risk: Risk score 0-100
+            details_hash: SHA256 hash of audit details (64 hex chars)
+
+        Returns:
+            Transaction signature
+        """
+        agent_pda, _ = self._get_agent_pda(self.keypair.pubkey(), agent_id)
+
+        # Get current audit index from summary
+        summary = await self.get_audit_summary(agent_pda)
+        audit_index = summary["total_entries"] if summary else 0
+
+        summary_pda, _ = self._get_audit_summary_pda(agent_pda)
+        entry_pda, _ = self._get_audit_entry_pda(agent_pda, audit_index)
+
+        # Build ActionType as enum variant
+        action_type_arg = {"evaluation_completed": {}} if action_type == 4 else {"generic_action": {}}
+
+        tx = await self.program.rpc["log_audit"](
+            action_type_arg,
+            context_risk,
+            details_hash,
+            ctx=Context(
+                accounts={
+                    "actor": self.keypair.pubkey(),
+                    "agent": agent_pda,
+                    "audit_summary": summary_pda,
+                    "audit_entry": entry_pda,
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[self.keypair],
+            )
+        )
+
+        logger.info(f"Audit logged on-chain: action={action_type}, risk={context_risk}, tx={tx}")
+        return str(tx)
 
     async def get_registry_state(self) -> dict:
         """Fetch the registry state"""
@@ -203,6 +289,7 @@ class AgentRegistryClient:
         agent_id: int,
         challenger: Pubkey,
         response_hash: str,
+        nonce: int = 0,
     ) -> str:
         """
         Submit a response to a challenge.
@@ -211,16 +298,18 @@ class AgentRegistryClient:
             agent_id: The agent's ID
             challenger: The challenger's pubkey
             response_hash: SHA256 hash of the response (64-char hex)
+            nonce: Challenge nonce (must match the nonce used in create_challenge)
 
         Returns:
             Transaction signature
         """
         registry_pda, _ = self._get_registry_pda()
         agent_pda, _ = self._get_agent_pda(self.keypair.pubkey(), agent_id)
-        challenge_pda, _ = self._get_challenge_pda(agent_pda, challenger)
+        challenge_pda, _ = self._get_challenge_pda(agent_pda, challenger, nonce)
 
         tx = await self.program.rpc["submit_response"](
             response_hash,
+            nonce,
             ctx=Context(
                 accounts={
                     "owner": self.keypair.pubkey(),
@@ -235,9 +324,9 @@ class AgentRegistryClient:
         logger.info(f"Challenge response submitted: {tx}")
         return str(tx)
 
-    async def get_challenge(self, agent_pda: Pubkey, challenger: Pubkey) -> dict:
+    async def get_challenge(self, agent_pda: Pubkey, challenger: Pubkey, nonce: int = 0) -> dict:
         """Fetch a challenge account"""
-        challenge_pda, _ = self._get_challenge_pda(agent_pda, challenger)
+        challenge_pda, _ = self._get_challenge_pda(agent_pda, challenger, nonce)
         challenge = await self.program.account["Challenge"].fetch(challenge_pda)
         return {
             "agent": str(challenge.agent),
@@ -248,6 +337,33 @@ class AgentRegistryClient:
             "created_at": challenge.created_at,
             "expires_at": challenge.expires_at,
         }
+
+    async def _retry_rpc(self, coro_fn, retries: int = 3, skip_on: Optional[str] = None):
+        """
+        Retry an async RPC call with exponential backoff.
+
+        Args:
+            coro_fn: Async callable (no-arg) that performs the RPC call
+            retries: Number of retry attempts
+            skip_on: If error message contains this string, don't retry (raise immediately)
+
+        Returns:
+            Result of the successful call
+        """
+        delays = [1, 2, 4]
+        last_err = None
+        for attempt in range(retries):
+            try:
+                return await coro_fn()
+            except Exception as e:
+                last_err = e
+                if skip_on and skip_on.lower() in str(e).lower():
+                    raise  # Not transient, don't retry
+                if attempt < retries - 1:
+                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                    logger.warning(f"RPC retry {attempt + 1}/{retries} after {delay}s: {str(e)[:80]}")
+                    await asyncio.sleep(delay)
+        raise last_err
 
     async def discover_agents(self, max_agents: int = 50, known_owners: list[str] = None) -> list[dict]:
         """
@@ -263,7 +379,7 @@ class AgentRegistryClient:
         Returns:
             List of agent dictionaries
         """
-        registry_state = await self.get_registry_state()
+        registry_state = await self._retry_rpc(self.get_registry_state)
         total_agents = registry_state["total_agents"]
         admin = Pubkey.from_string(registry_state["admin"])
 
@@ -285,7 +401,7 @@ class AgentRegistryClient:
         for owner in owners:
             for i in range(min(total_agents + 1, max_agents)):
                 try:
-                    agent = await self.get_agent(owner, i)
+                    agent = await self._retry_rpc(lambda o=owner, idx=i: self.get_agent(o, idx), skip_on="does not exist")
                     pda = str(self._get_agent_pda(owner, i)[0])
                     if pda not in seen_pdas:
                         agent["pda"] = pda
@@ -303,7 +419,8 @@ class AgentRegistryClient:
         target_agent_pda: Pubkey,
         question: str,
         expected_hash: str,
-    ) -> str:
+        nonce: int = 0,
+    ) -> tuple[str, int]:
         """
         Create a challenge for another agent.
 
@@ -314,28 +431,35 @@ class AgentRegistryClient:
             target_agent_pda: The target agent's PDA
             question: The challenge question
             expected_hash: SHA256 hash of expected answer
+            nonce: Unique nonce for PDA derivation (default: current unix timestamp)
 
         Returns:
-            Transaction signature
+            Tuple of (transaction signature, nonce used)
         """
-        challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey())
+        if nonce == 0:
+            nonce = int(time.time())
+        challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey(), nonce)
 
-        tx = await self.program.rpc["create_challenge"](
-            question,
-            expected_hash,
-            ctx=Context(
-                accounts={
-                    "challenger": self.keypair.pubkey(),
-                    "agent": target_agent_pda,
-                    "challenge": challenge_pda,
-                    "system_program": SYS_PROGRAM_ID,
-                },
-                signers=[self.keypair],
+        async def _do_create():
+            return await self.program.rpc["create_challenge"](
+                question,
+                expected_hash,
+                nonce,
+                ctx=Context(
+                    accounts={
+                        "challenger": self.keypair.pubkey(),
+                        "agent": target_agent_pda,
+                        "challenge": challenge_pda,
+                        "system_program": SYS_PROGRAM_ID,
+                    },
+                    signers=[self.keypair],
+                )
             )
-        )
 
-        logger.info(f"Challenge created for agent {target_agent_pda}: {tx}")
-        return str(tx)
+        tx = await self._retry_rpc(_do_create, retries=3, skip_on="already in use")
+
+        logger.info(f"Challenge created for agent {target_agent_pda}: {tx} (nonce={nonce})")
+        return str(tx), nonce
 
     async def get_pending_challenges_for_me(self) -> list[dict]:
         """

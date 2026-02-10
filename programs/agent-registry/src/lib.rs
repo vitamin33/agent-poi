@@ -56,28 +56,30 @@ pub mod agent_registry {
         instructions::update_reputation::handler(ctx, delta)
     }
 
-    /// Create a new challenge for an agent
+    /// Create a new challenge for an agent (nonce enables multiple challenges per pair)
     pub fn create_challenge(
         ctx: Context<CreateChallenge>,
         question: String,
         expected_hash: String,
+        nonce: u64,
     ) -> Result<()> {
-        instructions::create_challenge::handler(ctx, question, expected_hash)
+        instructions::create_challenge::handler(ctx, question, expected_hash, nonce)
     }
 
     /// Submit a response to a challenge (verifies and updates reputation)
     pub fn submit_response(
         ctx: Context<SubmitResponse>,
         response_hash: String,
+        nonce: u64,
     ) -> Result<()> {
-        instructions::submit_response::handler(ctx, response_hash)
+        instructions::submit_response::handler(ctx, response_hash, nonce)
     }
 
     /// Expire a challenge that was not responded to in time
     /// Can be called by anyone - permissionless cleanup
     /// Agent receives penalty for not responding
-    pub fn expire_challenge(ctx: Context<ExpireChallenge>) -> Result<()> {
-        instructions::expire_challenge::handler(ctx)
+    pub fn expire_challenge(ctx: Context<ExpireChallenge>, nonce: u64) -> Result<()> {
+        instructions::expire_challenge::handler(ctx, nonce)
     }
 
     // ============================================

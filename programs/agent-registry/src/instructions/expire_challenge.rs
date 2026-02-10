@@ -10,6 +10,7 @@ use crate::errors::RegistryError;
 /// 2. Accountability - agents that don't respond get penalized
 /// 3. Permissionless - anyone can trigger this, incentivizing cleanup
 #[derive(Accounts)]
+#[instruction(nonce: u64)]
 pub struct ExpireChallenge<'info> {
     /// Anyone can call this to expire a challenge
     #[account(mut)]
@@ -41,6 +42,7 @@ pub struct ExpireChallenge<'info> {
             Challenge::SEED_PREFIX,
             agent.key().as_ref(),
             challenge.challenger.as_ref(),
+            nonce.to_le_bytes().as_ref(),
         ],
         bump = challenge.bump,
         constraint = challenge.agent == agent.key() @ RegistryError::ChallengeMismatch,
@@ -49,7 +51,7 @@ pub struct ExpireChallenge<'info> {
     pub challenge: Account<'info, Challenge>,
 }
 
-pub fn handler(ctx: Context<ExpireChallenge>) -> Result<()> {
+pub fn handler(ctx: Context<ExpireChallenge>, _nonce: u64) -> Result<()> {
     let challenge = &mut ctx.accounts.challenge;
     let agent = &mut ctx.accounts.agent;
     let clock = Clock::get()?;

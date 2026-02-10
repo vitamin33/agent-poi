@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { DEMO_PEERS, DEMO_INTERACTIONS, DEMO_STATUS } from "@/lib/demoData";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -17,6 +18,8 @@ interface Peer {
   verified: boolean;
   version: string;
   capabilities: string;
+  personality?: string;
+  model?: string;
 }
 
 interface PeersResponse {
@@ -31,12 +34,17 @@ interface InteractionStep {
   step: string;
   status: string;
   peer_answer_preview?: string;
+  peer_answer_hash?: string;
   hash_matches?: boolean;
   tx?: string;
   target_pda?: string;
   http_status?: number;
   error?: string;
   reason?: string;
+  score?: number;
+  explanation?: string;
+  method?: string;
+  peer_new_reputation?: number;
 }
 
 interface Interaction {
@@ -45,9 +53,13 @@ interface Interaction {
   target: string;
   target_url: string;
   question: string;
+  question_domain?: string;
+  question_difficulty?: string;
   steps: InteractionStep[];
   completed_at: string;
   on_chain_tx: string | null;
+  submit_tx?: string | null;
+  judge_score?: number | null;
 }
 
 interface InteractionsResponse {
@@ -62,38 +74,66 @@ interface InteractionsResponse {
   recent_interactions: Interaction[];
 }
 
+interface AgentStatusResponse {
+  name: string;
+  reputation_score: number;
+  challenges_passed: number;
+  challenges_failed: number;
+  verified: boolean;
+  agent_id: number;
+}
+
 interface A2ANetworkViewProps {
   agentUrl?: string;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Personality colors (matching agent config)                         */
+/*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const PERSONALITY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  aggressive: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)" },
-  analytical: { bg: "rgba(59,130,246,0.1)", text: "#3b82f6", border: "rgba(59,130,246,0.3)" },
-  cooperative: { bg: "rgba(16,185,129,0.1)", text: "#10b981", border: "rgba(16,185,129,0.3)" },
+const PERSONALITY_COLORS: Record<string, { bg: string; text: string; border: string; gradient: string; label: string; icon: string }> = {
+  defi: { bg: "rgba(168,85,247,0.1)", text: "#a855f7", border: "rgba(168,85,247,0.3)", gradient: "from-purple-500/20 to-fuchsia-500/10", label: "DeFi Specialist", icon: "\u26A1" },
+  security: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)", gradient: "from-red-500/20 to-orange-500/10", label: "Security Auditor", icon: "\uD83D\uDEE1\uFE0F" },
+  solana: { bg: "rgba(0,240,255,0.1)", text: "#00f0ff", border: "rgba(0,240,255,0.3)", gradient: "from-cyan-500/20 to-blue-500/10", label: "Solana Expert", icon: "\u2B21" },
+  // Legacy fallback mappings
+  aggressive: { bg: "rgba(168,85,247,0.1)", text: "#a855f7", border: "rgba(168,85,247,0.3)", gradient: "from-purple-500/20 to-fuchsia-500/10", label: "DeFi Specialist", icon: "\u26A1" },
+  analytical: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)", gradient: "from-red-500/20 to-orange-500/10", label: "Security Auditor", icon: "\uD83D\uDEE1\uFE0F" },
+  cooperative: { bg: "rgba(0,240,255,0.1)", text: "#00f0ff", border: "rgba(0,240,255,0.3)", gradient: "from-cyan-500/20 to-blue-500/10", label: "Solana Expert", icon: "\u2B21" },
 };
 
-function getPersonalityFromName(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower.includes("alpha")) return "aggressive";
-  if (lower.includes("beta")) return "analytical";
-  if (lower.includes("gamma")) return "cooperative";
-  return "analytical";
-}
+const DOMAIN_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  defi: { bg: "rgba(168,85,247,0.1)", text: "#a855f7", border: "rgba(168,85,247,0.3)", label: "DeFi" },
+  solana: { bg: "rgba(0,240,255,0.1)", text: "#00f0ff", border: "rgba(0,240,255,0.3)", label: "Solana" },
+  security: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)", label: "Security" },
+  general: { bg: "rgba(148,163,184,0.1)", text: "#94a3b8", border: "rgba(148,163,184,0.3)", label: "General" },
+};
+
+const DIFFICULTY_COLORS: Record<string, { text: string }> = {
+  easy: { text: "#10b981" },
+  medium: { text: "#f59e0b" },
+  hard: { text: "#ef4444" },
+};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+function getPersonalityFromName(name: string, personality?: string): string {
+  // Use actual personality from API if available
+  if (personality) return personality;
+  // Fallback mapping from agent name to domain specialization
+  const lower = name.toLowerCase();
+  if (lower.includes("alpha")) return "defi";
+  if (lower.includes("beta")) return "security";
+  if (lower.includes("gamma")) return "solana";
+  return "defi";
+}
 
 function formatRelativeTime(dateStr: string): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
-
   if (diffSec < 5) return "just now";
   if (diffSec < 60) return `${diffSec}s ago`;
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
@@ -102,104 +142,85 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.substring(0, max) + "..." : s;
+  return s.length > max ? s.substring(0, max) + "\u2026" : s;
 }
 
 function explorerTxUrl(tx: string): string {
   return `https://explorer.solana.com/tx/${tx}?cluster=devnet`;
 }
 
+function getScoreColor(score: number): string {
+  if (score >= 80) return "#10b981";
+  if (score >= 60) return "#f59e0b";
+  if (score >= 40) return "#f97316";
+  return "#ef4444";
+}
+
+function getScoreLabel(score: number): string {
+  if (score >= 90) return "Excellent";
+  if (score >= 80) return "Good";
+  if (score >= 60) return "Fair";
+  if (score >= 40) return "Weak";
+  return "Poor";
+}
+
+function getAgentInitials(name: string): string {
+  return name.replace("PoI-", "").charAt(0).toUpperCase();
+}
+
 /* ------------------------------------------------------------------ */
-/*  Network Node                                                       */
+/*  Score Ring                                                         */
 /* ------------------------------------------------------------------ */
 
-function NetworkNode({
-  name,
-  reputation,
-  status,
-  verified,
-  isSelf,
-  personality,
-  pulseNew,
-}: {
-  name: string;
-  reputation: number;
-  status: string;
-  verified: boolean;
-  isSelf: boolean;
-  personality: string;
-  pulseNew: boolean;
-}) {
-  const pColor = PERSONALITY_COLORS[personality] || PERSONALITY_COLORS.analytical;
-  const isOnline = status === "online";
+function ScoreRing({ score, size = 36 }: { score: number; size?: number }) {
+  const color = getScoreColor(score);
+  const radius = (size - 6) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - score / 100);
 
   return (
-    <div className={`relative flex flex-col items-center ${pulseNew ? "animate-a2a-pulse" : ""}`}>
-      {/* Outer ring */}
-      <div
-        className="relative w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center"
-        style={{
-          background: `linear-gradient(135deg, ${pColor.bg}, rgba(0,0,0,0))`,
-          border: `2px solid ${isOnline ? pColor.border : "rgba(100,116,139,0.3)"}`,
-          boxShadow: isOnline ? `0 0 20px ${pColor.bg}` : "none",
-        }}
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="rgba(100,116,139,0.15)"
+          strokeWidth="3"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{
+            transition: "stroke-dashoffset 0.8s ease-out",
+            filter: `drop-shadow(0 0 4px ${color}40)`,
+          }}
+        />
+      </svg>
+      <span
+        className="absolute inset-0 flex items-center justify-center font-bold"
+        style={{ color, fontSize: size < 40 ? "10px" : "14px" }}
       >
-        {/* Inner circle */}
-        <div className="w-14 h-14 md:w-18 md:h-18 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center border border-[rgba(0,240,255,0.1)]">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ color: pColor.text }}>
-            <rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="2" />
-            <circle cx="9" cy="10" r="2" fill="currentColor" />
-            <circle cx="15" cy="10" r="2" fill="currentColor" />
-            <path d="M8 20h8M12 16v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
-
-        {/* Online dot */}
-        <div className="absolute top-0 right-0">
-          <span
-            className={`block w-3 h-3 rounded-full ${isOnline ? "status-live" : ""}`}
-            style={{ backgroundColor: isOnline ? "#10b981" : "#64748b" }}
-          />
-        </div>
-      </div>
-
-      {/* Name & info */}
-      <div className="mt-2 text-center">
-        <p className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-1 justify-center">
-          {name}
-          {isSelf && (
-            <span className="text-[10px] text-[var(--accent-primary)]">(self)</span>
-          )}
-        </p>
-
-        {/* Personality badge */}
-        <span
-          className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider"
-          style={{ background: pColor.bg, color: pColor.text, border: `1px solid ${pColor.border}` }}
-        >
-          {personality}
-        </span>
-
-        {/* Reputation */}
-        <p className="text-xs text-[var(--text-muted)] mt-1">
-          Rep: <span className="text-[var(--accent-primary)] font-mono">{(reputation / 100).toFixed(1)}</span>
-        </p>
-
-        {verified && (
-          <span className="badge-verified scanline-effect px-1.5 py-0.5 rounded text-[10px] font-medium mt-1 inline-block">
-            Verified
-          </span>
-        )}
-      </div>
+        {score}
+      </span>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Interaction Item                                                   */
+/*  Interaction Row                                                    */
 /* ------------------------------------------------------------------ */
 
-function InteractionItem({
+function InteractionRow({
   interaction,
   isNew,
 }: {
@@ -208,55 +229,85 @@ function InteractionItem({
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasOnChain = !!interaction.on_chain_tx;
+  const hasSubmit = !!interaction.submit_tx;
 
-  const httpStep = interaction.steps.find((s) => s.step === "a2a_http_challenge");
-  const onChainStep = interaction.steps.find((s) => s.step === "on_chain_challenge");
+  const domain = interaction.question_domain;
+  const difficulty = interaction.question_difficulty;
+  const domainColor = domain ? DOMAIN_COLORS[domain] : null;
+  const diffColor = difficulty ? DIFFICULTY_COLORS[difficulty] : null;
+  const judgeScore = interaction.judge_score;
+
+  const challengerPersonality = getPersonalityFromName(interaction.challenger);
+  const targetPersonality = getPersonalityFromName(interaction.target);
+  const cColor = PERSONALITY_COLORS[challengerPersonality] || PERSONALITY_COLORS.defi;
+  const tColor = PERSONALITY_COLORS[targetPersonality] || PERSONALITY_COLORS.defi;
 
   return (
     <div
       className={`
-        rounded-lg border transition-all duration-500 cursor-pointer
-        ${isNew ? "animate-slide-in border-[rgba(0,240,255,0.3)] bg-[var(--bg-surface)]" : "border-[rgba(0,240,255,0.05)] bg-[var(--bg-elevated)]"}
-        hover:border-[rgba(0,240,255,0.2)]
+        rounded-lg transition-all duration-300
+        ${isNew ? "animate-slide-in ring-1 ring-[rgba(0,240,255,0.25)]" : ""}
+        ${expanded ? "bg-[var(--bg-surface)] ring-1 ring-[rgba(0,240,255,0.1)]" : "hover:bg-[var(--bg-surface)]/50"}
       `}
-      onClick={() => setExpanded(!expanded)}
     >
-      {/* Summary row */}
-      <div className="flex items-center gap-3 p-3">
-        {/* Direction arrow */}
-        <div className="flex-shrink-0 flex items-center gap-1.5">
-          <span className="text-xs font-semibold text-[#a855f7]">{interaction.challenger}</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-[var(--accent-primary)]">
-            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="text-xs font-semibold text-[#22d3ee]">{interaction.target}</span>
-        </div>
-
-        {/* Question preview */}
-        <span className="flex-1 text-xs text-[var(--text-secondary)] truncate min-w-0">
-          &quot;{truncate(interaction.question, 50)}&quot;
-        </span>
-
-        {/* Status badges */}
+      {/* Compact row */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
+      >
+        {/* Challenger -> Target */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {hasOnChain ? (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(16,185,129,0.1)] text-[#10b981] border border-[rgba(16,185,129,0.3)]">
-              ON-CHAIN
-            </span>
-          ) : (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(245,158,11,0.1)] text-[#f59e0b] border border-[rgba(245,158,11,0.3)]">
-              HTTP
-            </span>
-          )}
-          <span className="text-[10px] text-[var(--text-muted)]">
-            {formatRelativeTime(interaction.timestamp)}
+          <span className="text-xs font-semibold" style={{ color: cColor.text }}>
+            {interaction.challenger.replace("PoI-", "")}
+          </span>
+          <svg width="14" height="10" viewBox="0 0 14 10" fill="none" className="text-[var(--text-muted)]">
+            <path d="M1 5h12M9 1l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-xs font-semibold" style={{ color: tColor.text }}>
+            {interaction.target.replace("PoI-", "")}
           </span>
         </div>
 
-        {/* Expand icon */}
+        {/* Question */}
+        <span className="flex-1 text-xs text-[var(--text-secondary)] truncate min-w-0">
+          {truncate(interaction.question, 50)}
+        </span>
+
+        {/* Domain badge */}
+        {domainColor && (
+          <span
+            className="px-1.5 py-0.5 rounded text-[9px] font-semibold flex-shrink-0 uppercase tracking-wider"
+            style={{ background: domainColor.bg, color: domainColor.text, border: `1px solid ${domainColor.border}` }}
+          >
+            {domainColor.label}
+          </span>
+        )}
+
+        {/* Score */}
+        {judgeScore != null && <ScoreRing score={judgeScore} size={28} />}
+
+        {/* Status */}
+        <div className="flex-shrink-0">
+          {hasSubmit ? (
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[rgba(16,185,129,0.12)] text-[#10b981]">
+              ON-CHAIN
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[rgba(245,158,11,0.08)] text-[#f59e0b]/80">
+              HTTP
+            </span>
+          )}
+        </div>
+
+        {/* Time */}
+        <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 w-12 text-right">
+          {formatRelativeTime(interaction.timestamp)}
+        </span>
+
+        {/* Expand */}
         <svg
-          width="16"
-          height="16"
+          width="14"
+          height="14"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -265,71 +316,218 @@ function InteractionItem({
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
-      </div>
+      </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="px-3 pb-3 pt-0 border-t border-[rgba(0,240,255,0.05)]">
-          <div className="space-y-2 mt-2">
-            {/* Steps */}
-            {interaction.steps.map((step, idx) => (
-              <div key={idx} className="flex items-start gap-2">
-                <span
-                  className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                    step.status === "success" || step.status === "created"
-                      ? "bg-[rgba(16,185,129,0.1)] text-[#10b981]"
-                      : step.status === "failed" || step.status === "error"
-                        ? "bg-[rgba(239,68,68,0.1)] text-[#ef4444]"
-                        : "bg-[rgba(245,158,11,0.1)] text-[#f59e0b]"
-                  }`}
-                >
-                  {idx + 1}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-xs text-[var(--text-primary)]">
-                    <span className="font-medium">{step.step.replace(/_/g, " ")}</span>
-                    <span className="text-[var(--text-muted)]"> - {step.status}</span>
-                  </p>
-                  {step.peer_answer_preview && (
-                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
-                      Answer: &quot;{truncate(step.peer_answer_preview, 80)}&quot;
-                    </p>
-                  )}
-                  {step.tx && (
-                    <a
-                      href={explorerTxUrl(step.tx)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-[var(--accent-primary)] hover:underline mt-0.5 inline-block"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      TX: {step.tx.substring(0, 16)}... (Explorer)
-                    </a>
-                  )}
-                  {step.error && (
-                    <p className="text-[11px] text-[#ef4444] mt-0.5 truncate">
-                      {truncate(step.error, 80)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
+        <div className="px-3 pb-3 pt-1 border-t border-[rgba(0,240,255,0.05)]">
+          {/* Meta: domain + difficulty + full question */}
+          <div className="flex flex-wrap items-center gap-2 mt-2 mb-3">
+            {domainColor && (
+              <span
+                className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider"
+                style={{ background: domainColor.bg, color: domainColor.text, border: `1px solid ${domainColor.border}` }}
+              >
+                {domainColor.label}
+              </span>
+            )}
+            {diffColor && difficulty && (
+              <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: diffColor.text }}>
+                {difficulty}
+              </span>
+            )}
+            <span className="text-[11px] text-[var(--text-muted)] flex-1">
+              {interaction.question}
+            </span>
+          </div>
 
-            {/* On-chain TX link at bottom */}
-            {interaction.on_chain_tx && (
-              <div className="pt-1 border-t border-[rgba(0,240,255,0.05)]">
-                <a
-                  href={explorerTxUrl(interaction.on_chain_tx)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-[var(--accent-primary)] hover:underline flex items-center gap-1"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-                  </svg>
-                  View on Solana Explorer
-                </a>
+          <div className="space-y-2.5">
+            {interaction.steps.map((step, idx) => {
+              const isJudge = step.step === "llm_judge_scoring";
+              const isHttp = step.step === "a2a_http_challenge";
+              const isSubmit = step.step === "on_chain_submit";
+              const isChallenge = step.step === "on_chain_challenge";
+
+              return (
+                <div key={idx} className="flex items-start gap-2.5">
+                  <span
+                    className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                      step.status === "success" || step.status === "created" || step.status === "scored" || step.status === "recorded"
+                        ? "bg-[rgba(16,185,129,0.15)] text-[#10b981]"
+                        : step.status === "exists" || step.status === "skipped" || step.status === "skipped_pda_exhausted" || step.status === "pda_exhausted"
+                          ? "bg-[rgba(148,163,184,0.1)] text-[#94a3b8]"
+                          : step.status === "failed" || step.status === "error"
+                            ? "bg-[rgba(239,68,68,0.15)] text-[#ef4444]"
+                            : "bg-[rgba(245,158,11,0.1)] text-[#f59e0b]"
+                    }`}
+                  >
+                    {idx + 1}
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    {isHttp && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-[var(--text-primary)]">A2A HTTP Challenge</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            step.status === "success" ? "bg-[rgba(16,185,129,0.1)] text-[#10b981]" : "bg-[rgba(239,68,68,0.1)] text-[#ef4444]"
+                          }`}>
+                            {step.status === "success" ? "Response received" : step.status}
+                          </span>
+                        </div>
+                        {step.peer_answer_preview && (
+                          <div className="mt-1.5 p-2 rounded bg-[rgba(0,0,0,0.2)] border border-[rgba(0,240,255,0.05)]">
+                            <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Peer&apos;s Answer</p>
+                            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                              {step.peer_answer_preview}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {isJudge && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-[var(--text-primary)]">LLM Judge Evaluation</span>
+                          {step.method && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[rgba(168,85,247,0.1)] text-[#a855f7] border border-[rgba(168,85,247,0.2)]">
+                              {step.method === "llm" ? "Claude AI" : step.method}
+                            </span>
+                          )}
+                        </div>
+                        {step.score != null && (
+                          <div className="mt-1.5 p-2.5 rounded bg-[rgba(0,0,0,0.2)] border border-[rgba(0,240,255,0.05)]">
+                            <div className="flex items-center gap-3">
+                              <ScoreRing score={step.score} size={42} />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className="text-sm font-bold" style={{ color: getScoreColor(step.score) }}>
+                                    {step.score}/100
+                                  </span>
+                                  <span className="text-[10px] font-medium" style={{ color: getScoreColor(step.score) }}>
+                                    {getScoreLabel(step.score)}
+                                  </span>
+                                </div>
+                                {step.explanation && (
+                                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                                    {step.explanation}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {isChallenge && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-[var(--text-primary)]">On-Chain Challenge</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            step.status === "created" || step.status === "recorded"
+                              ? "bg-[rgba(16,185,129,0.1)] text-[#10b981]"
+                              : step.status === "pda_exhausted" || step.status === "skipped_pda_exhausted"
+                                ? "bg-[rgba(148,163,184,0.08)] text-[#94a3b8]"
+                                : "bg-[rgba(239,68,68,0.1)] text-[#ef4444]"
+                          }`}>
+                            {step.status === "created" ? "Created" :
+                             step.status === "recorded" ? "On-chain proof exists" :
+                             step.status === "pda_exhausted" || step.status === "skipped_pda_exhausted" ? "PDA Slot Used" :
+                             step.status === "skipped" ? "Skipped" : step.status}
+                          </span>
+                        </div>
+                        {step.status === "recorded" && (
+                          <p className="text-[10px] text-[#10b981]/70 mt-0.5">
+                            On-chain proof already exists for this agent pair. HTTP + LLM scoring continues.
+                          </p>
+                        )}
+                        {(step.status === "pda_exhausted" || step.status === "skipped_pda_exhausted") && (
+                          <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                            One challenge PDA per agent pair (Solana constraint). HTTP + LLM scoring continues.
+                          </p>
+                        )}
+                        {step.tx && (
+                          <a href={explorerTxUrl(step.tx)} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] text-[var(--accent-primary)] hover:underline mt-1 inline-flex items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                            </svg>
+                            TX: {step.tx.substring(0, 20)}...
+                          </a>
+                        )}
+                      </>
+                    )}
+
+                    {isSubmit && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-[var(--text-primary)]">On-Chain Submit</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            step.status === "success" ? "bg-[rgba(16,185,129,0.15)] text-[#10b981]" : "bg-[rgba(239,68,68,0.1)] text-[#ef4444]"
+                          }`}>
+                            {step.status === "success" ? "Reputation Updated" : step.status}
+                          </span>
+                        </div>
+                        {step.peer_new_reputation != null && (
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="text-[10px] text-[var(--text-muted)]">New peer reputation:</span>
+                            <span className="text-xs font-bold text-[#10b981]">{(step.peer_new_reputation / 100).toFixed(1)}</span>
+                          </div>
+                        )}
+                        {step.tx && (
+                          <a href={explorerTxUrl(step.tx)} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] text-[var(--accent-primary)] hover:underline mt-1 inline-flex items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                            </svg>
+                            TX: {step.tx.substring(0, 20)}...
+                          </a>
+                        )}
+                      </>
+                    )}
+
+                    {!isHttp && !isJudge && !isChallenge && !isSubmit && (
+                      <>
+                        <p className="text-xs text-[var(--text-primary)]">
+                          <span className="font-medium">{step.step.replace(/_/g, " ")}</span>
+                          <span className="text-[var(--text-muted)]"> - {step.status}</span>
+                        </p>
+                        {step.error && step.status !== "exists" && (
+                          <p className="text-[11px] text-[#ef4444] mt-0.5 truncate">{truncate(step.error, 80)}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {(interaction.on_chain_tx || interaction.submit_tx) && (
+              <div className="pt-2 border-t border-[rgba(0,240,255,0.05)] flex items-center gap-4">
+                {interaction.on_chain_tx && (
+                  <a href={explorerTxUrl(interaction.on_chain_tx)} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-[var(--accent-primary)] hover:underline flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                    </svg>
+                    Challenge TX
+                  </a>
+                )}
+                {interaction.submit_tx && (
+                  <a href={explorerTxUrl(interaction.submit_tx)} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-[#10b981] hover:underline flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                    </svg>
+                    Submit TX
+                  </a>
+                )}
               </div>
             )}
           </div>
@@ -348,74 +546,74 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
 
   const [peersData, setPeersData] = useState<PeersResponse | null>(null);
   const [interactionsData, setInteractionsData] = useState<InteractionsResponse | null>(null);
+  const [selfStatus, setSelfStatus] = useState<AgentStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDemo, setIsDemo] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
   const [newInteractionIds, setNewInteractionIds] = useState<Set<string>>(new Set());
   const prevInteractionCountRef = useRef(0);
 
-  // Fetch data from the proxy API route
   const fetchData = useCallback(async () => {
     try {
-      const [peersRes, interactionsRes] = await Promise.all([
+      const [peersRes, interactionsRes, statusRes] = await Promise.all([
         fetch("/api/a2a?endpoint=peers"),
         fetch("/api/a2a?endpoint=interactions"),
+        fetch("/api/a2a?endpoint=status"),
       ]);
 
-      if (peersRes.ok) {
-        const pData: PeersResponse = await peersRes.json();
-        setPeersData(pData);
-      }
+      if (peersRes.ok) setPeersData(await peersRes.json());
+      if (statusRes.ok) setSelfStatus(await statusRes.json());
 
       if (interactionsRes.ok) {
         const iData: InteractionsResponse = await interactionsRes.json();
-
-        // Detect new interactions for pulse animation
         if (iData.recent_interactions.length > prevInteractionCountRef.current) {
           const newIds = new Set<string>();
-          const newOnes = iData.recent_interactions.slice(
-            0,
-            iData.recent_interactions.length - prevInteractionCountRef.current
-          );
-          newOnes.forEach((i) => newIds.add(i.timestamp));
+          iData.recent_interactions
+            .slice(0, iData.recent_interactions.length - prevInteractionCountRef.current)
+            .forEach((i) => newIds.add(i.timestamp));
           setNewInteractionIds(newIds);
-
-          // Clear animation after 3s
           setTimeout(() => setNewInteractionIds(new Set()), 3000);
         }
         prevInteractionCountRef.current = iData.recent_interactions.length;
-
         setInteractionsData(iData);
       }
 
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch A2A data");
+      setIsDemo(false);
+    } catch {
+      // Fallback to demo data when agents aren't running
+      setPeersData(DEMO_PEERS as PeersResponse);
+      setInteractionsData(DEMO_INTERACTIONS as unknown as InteractionsResponse);
+      setSelfStatus(DEMO_STATUS as AgentStatusResponse);
+      setError(null);
+      setIsDemo(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial fetch + polling
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Build node data (self + peers)
+  // Build nodes
   const selfName = peersData?.agent_name || "Agent";
   const peers = peersData?.peers || [];
+  const selfReputation = selfStatus?.reputation_score ?? 5000;
 
-  // All nodes for the network visualization
   const allNodes = [
     {
       name: selfName,
-      reputation: 5000,
+      reputation: selfReputation,
       status: "online" as const,
-      verified: true,
+      verified: selfStatus?.verified ?? false,
       isSelf: true,
       personality: getPersonalityFromName(selfName),
+      capabilities: "",
+      model: "",
     },
     ...peers.map((p) => ({
       name: p.name || "Unknown",
@@ -423,7 +621,9 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
       status: p.status,
       verified: p.verified || false,
       isSelf: false,
-      personality: getPersonalityFromName(p.name || ""),
+      personality: getPersonalityFromName(p.name || "", p.personality),
+      capabilities: p.capabilities || "",
+      model: p.model || "",
     })),
   ];
 
@@ -436,45 +636,91 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
 
   const recentInteractions = interactionsData?.recent_interactions || [];
 
+  // Global avg judge score
+  const judgeScores = recentInteractions
+    .map((i) => i.judge_score)
+    .filter((s): s is number => s != null);
+  const avgJudgeScore = judgeScores.length > 0
+    ? Math.round(judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length)
+    : null;
+
+  // Per-agent performance from judge scores
+  const agentPerformance = useMemo(() => {
+    const perf = new Map<string, { avgScore: number | null; asTarget: number; asChallenger: number }>();
+    const targetScoreMap = new Map<string, number[]>();
+    const challengerCounts = new Map<string, number>();
+    const targetCounts = new Map<string, number>();
+
+    recentInteractions.forEach((i) => {
+      challengerCounts.set(i.challenger, (challengerCounts.get(i.challenger) || 0) + 1);
+      targetCounts.set(i.target, (targetCounts.get(i.target) || 0) + 1);
+      if (i.judge_score != null) {
+        const scores = targetScoreMap.get(i.target) || [];
+        scores.push(i.judge_score);
+        targetScoreMap.set(i.target, scores);
+      }
+    });
+
+    allNodes.forEach((n) => {
+      const scores = targetScoreMap.get(n.name);
+      const avg = scores && scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : null;
+      perf.set(n.name, {
+        avgScore: avg,
+        asTarget: targetCounts.get(n.name) || 0,
+        asChallenger: challengerCounts.get(n.name) || 0,
+      });
+    });
+
+    return perf;
+  }, [recentInteractions, allNodes]);
+
   return (
-    <div className="rounded-2xl bg-[var(--bg-elevated)] border border-[rgba(0,240,255,0.1)] overflow-hidden">
+    <div className="rounded-2xl bg-[var(--bg-elevated)] border border-[rgba(0,240,255,0.08)] overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between p-6 border-b border-[rgba(0,240,255,0.1)] cursor-pointer"
+        className="flex items-center justify-between p-5 cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[var(--bg-deep)]">
-              <circle cx="5" cy="12" r="3" fill="currentColor" />
-              <circle cx="19" cy="12" r="3" fill="currentColor" />
-              <circle cx="12" cy="5" r="3" fill="currentColor" />
-              <path d="M7.5 10.5L10.5 6.5M16.5 10.5L13.5 6.5M7 13L17 13" stroke="currentColor" strokeWidth="1.5" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent-primary)]/20 to-[var(--accent-secondary)]/20 flex items-center justify-center border border-[rgba(0,240,255,0.15)]">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-[var(--accent-primary)]">
+              <circle cx="5" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="19" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="12" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M7 11L10 7M17 11L14 7M8 12.5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-              A2A Network
-            </h2>
-            <p className="text-xs text-[var(--text-muted)]">
-              Agent-to-Agent Protocol - Live Interactions
-            </p>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">A2A Intelligence Network</h2>
+            <p className="text-[11px] text-[var(--text-muted)]">Real-time agent-to-agent challenge protocol</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Online count */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[rgba(16,185,129,0.1)] border border-[rgba(16,185,129,0.3)]">
-            <span className="w-2 h-2 rounded-full bg-[#10b981] status-live" />
-            <span className="text-sm text-[#10b981] font-medium">
+          {isDemo && (
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-wider bg-[rgba(245,158,11,0.1)] text-[#f59e0b] border border-[rgba(245,158,11,0.3)]">
+              Demo Data
+            </span>
+          )}
+          {avgJudgeScore != null && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[rgba(0,240,255,0.08)]">
+              <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Avg</span>
+              <span className="text-sm font-bold" style={{ color: getScoreColor(avgJudgeScore) }}>
+                {avgJudgeScore}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[rgba(16,185,129,0.06)] border border-[rgba(16,185,129,0.2)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] status-live" />
+            <span className="text-xs text-[#10b981] font-medium">
               {peersData?.online_peers ?? 0} peers
             </span>
           </div>
-
-          {/* Expand/collapse */}
           <svg
-            width="20"
-            height="20"
+            width="18"
+            height="18"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -487,163 +733,173 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
       </div>
 
       {/* Body */}
-      <div
-        className={`transition-all duration-300 overflow-hidden ${
-          isExpanded ? "max-h-[2000px]" : "max-h-0"
-        }`}
-      >
+      <div className={`transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-[4000px]" : "max-h-0"}`}>
         {loading ? (
           <div className="text-center py-12">
-            <div className="relative w-12 h-12 mx-auto mb-4">
-              <div className="absolute inset-0 rounded-full border-4 border-[var(--bg-surface)]" />
-              <div className="absolute inset-0 rounded-full border-4 border-t-[var(--accent-primary)] animate-spin" />
+            <div className="relative w-10 h-10 mx-auto mb-3">
+              <div className="absolute inset-0 rounded-full border-2 border-[var(--bg-surface)]" />
+              <div className="absolute inset-0 rounded-full border-2 border-t-[var(--accent-primary)] animate-spin" />
             </div>
             <p className="text-sm text-[var(--text-muted)]">Connecting to A2A network...</p>
           </div>
         ) : error ? (
-          <div className="p-6">
-            <div className="flex items-center gap-3 p-4 rounded-lg bg-[rgba(245,158,11,0.1)] border border-[rgba(245,158,11,0.3)]">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#f59e0b] flex-shrink-0">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+          <div className="p-5">
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-[rgba(245,158,11,0.06)] border border-[rgba(245,158,11,0.2)]">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-[#f59e0b] flex-shrink-0">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" />
                 <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
               <div>
                 <p className="text-sm text-[#f59e0b]">Agent API unavailable</p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                  Ensure Python agents are running at {baseUrl}
-                </p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">Ensure Python agents are running at {baseUrl}</p>
               </div>
             </div>
           </div>
         ) : (
           <>
-            {/* Network Topology Visualization */}
-            <div className="p-6">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
-                Network Topology
-              </h3>
+            {/* Agent Cards */}
+            <div className="px-5 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {allNodes.map((node) => {
+                  const perf = agentPerformance.get(node.name);
+                  const pColor = PERSONALITY_COLORS[node.personality] || PERSONALITY_COLORS.analytical;
+                  const isOnline = node.status === "online";
+                  const displayScore = perf?.avgScore ?? (node.isSelf ? avgJudgeScore : null);
+                  const interactionCount = (perf?.asChallenger || 0) + (perf?.asTarget || 0);
 
-              <div className="relative">
-                {/* SVG connection lines (drawn behind nodes) */}
-                <svg
-                  className="absolute inset-0 w-full h-full pointer-events-none"
-                  viewBox="0 0 600 240"
-                  preserveAspectRatio="xMidYMid meet"
-                  style={{ zIndex: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="line-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="rgba(0,240,255,0.4)" />
-                      <stop offset="100%" stopColor="rgba(168,85,247,0.4)" />
-                    </linearGradient>
-                    <linearGradient id="line-grad-2" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="rgba(168,85,247,0.3)" />
-                      <stop offset="100%" stopColor="rgba(16,185,129,0.3)" />
-                    </linearGradient>
-                    <linearGradient id="line-grad-3" x1="0%" y1="100%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="rgba(16,185,129,0.3)" />
-                      <stop offset="100%" stopColor="rgba(0,240,255,0.3)" />
-                    </linearGradient>
-                  </defs>
+                  return (
+                    <div key={node.name} className="relative group">
+                      {/* Left accent */}
+                      <div
+                        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full transition-all duration-300 group-hover:top-1 group-hover:bottom-1"
+                        style={{
+                          background: `linear-gradient(180deg, ${pColor.text}, ${pColor.text}15)`,
+                          boxShadow: `0 0 8px ${pColor.text}30`,
+                        }}
+                      />
 
-                  {/* Triangle lines connecting up to 3 nodes */}
-                  {allNodes.length >= 2 && (
-                    <>
-                      {/* Top to bottom-left */}
-                      <line
-                        x1="300" y1="50" x2="150" y2="200"
-                        stroke="url(#line-grad-1)"
-                        strokeWidth="2"
-                        strokeDasharray="6 4"
-                        className="animate-a2a-dash"
-                      />
-                      {/* Top to bottom-right */}
-                      <line
-                        x1="300" y1="50" x2="450" y2="200"
-                        stroke="url(#line-grad-2)"
-                        strokeWidth="2"
-                        strokeDasharray="6 4"
-                        className="animate-a2a-dash"
-                      />
-                    </>
-                  )}
-                  {allNodes.length >= 3 && (
-                    /* Bottom-left to bottom-right */
-                    <line
-                      x1="150" y1="200" x2="450" y2="200"
-                      stroke="url(#line-grad-3)"
-                      strokeWidth="2"
-                      strokeDasharray="6 4"
-                      className="animate-a2a-dash"
-                    />
-                  )}
-                </svg>
+                      <div className="ml-3 p-4 rounded-xl bg-[var(--bg-surface)] border border-[rgba(0,240,255,0.05)] hover:border-[rgba(0,240,255,0.12)] transition-all duration-300 group-hover:shadow-[0_0_30px_rgba(0,240,255,0.04)]">
+                        {/* Top: Name + Status */}
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2.5">
+                            {/* Avatar */}
+                            <div
+                              className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold"
+                              style={{
+                                background: pColor.bg,
+                                border: `1px solid ${pColor.border}`,
+                                color: pColor.text,
+                              }}
+                            >
+                              {getAgentInitials(node.name)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-sm text-[var(--text-primary)]">
+                                  {node.name}
+                                </span>
+                                {node.isSelf && (
+                                  <span className="text-[8px] px-1 py-0.5 rounded bg-[rgba(0,240,255,0.08)] text-[var(--accent-primary)] font-semibold uppercase tracking-wider">
+                                    self
+                                  </span>
+                                )}
+                              </div>
+                              <span
+                                className="text-[10px] font-bold uppercase tracking-widest"
+                                style={{ color: pColor.text }}
+                              >
+                                {pColor.label || node.personality}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`w-2 h-2 rounded-full ${isOnline ? "status-live" : ""}`}
+                              style={{ backgroundColor: isOnline ? "#10b981" : "#64748b" }}
+                            />
+                            <span className="text-[10px] text-[var(--text-muted)]">
+                              {isOnline ? "Live" : "Off"}
+                            </span>
+                          </div>
+                        </div>
 
-                {/* Nodes positioned in triangle layout */}
-                <div className="relative" style={{ minHeight: 260 }}>
-                  {/* Top node (self) */}
-                  {allNodes[0] && (
-                    <div className="absolute left-1/2 top-0 -translate-x-1/2" style={{ zIndex: 1 }}>
-                      <NetworkNode
-                        {...allNodes[0]}
-                        pulseNew={newInteractionIds.size > 0}
-                      />
+                        {/* Capabilities */}
+                        {node.capabilities && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {node.capabilities.split(",").filter(c => c && c !== "cross-agent-discovery").slice(0, 3).map((cap) => (
+                              <span
+                                key={cap}
+                                className="px-1.5 py-0.5 rounded text-[8px] font-medium uppercase tracking-wider"
+                                style={{ background: "rgba(100,116,139,0.08)", color: "var(--text-muted)", border: "1px solid rgba(100,116,139,0.12)" }}
+                              >
+                                {cap.trim().replace(/-/g, " ")}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Score */}
+                        <div className="flex flex-col items-center py-3">
+                          {displayScore != null ? (
+                            <ScoreRing score={displayScore} size={60} />
+                          ) : (
+                            <div className="w-[60px] h-[60px] rounded-full bg-[var(--bg-elevated)] flex items-center justify-center border border-[rgba(0,240,255,0.05)]">
+                              <span className="text-lg text-[var(--text-muted)] font-light">-</span>
+                            </div>
+                          )}
+                          <span className="text-[10px] text-[var(--text-muted)] mt-2 uppercase tracking-wider">
+                            {displayScore != null
+                              ? node.isSelf && !perf?.avgScore
+                                ? "Network Avg"
+                                : "A2A Score"
+                              : "Awaiting"}
+                          </span>
+                        </div>
+
+                        {/* Bottom stats */}
+                        <div className="flex items-center justify-between pt-3 border-t border-[rgba(0,240,255,0.04)]">
+                          <span className="text-[11px] text-[var(--text-muted)]">
+                            {interactionCount > 0
+                              ? `${interactionCount} challenge${interactionCount !== 1 ? "s" : ""}`
+                              : "No activity"}
+                          </span>
+                          {node.verified && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[rgba(16,185,129,0.08)] text-[#10b981] border border-[rgba(16,185,129,0.15)] font-medium">
+                              Verified
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
-
-                  {/* Bottom-left node */}
-                  {allNodes[1] && (
-                    <div className="absolute left-[15%] md:left-[20%] bottom-0" style={{ zIndex: 1 }}>
-                      <NetworkNode
-                        {...allNodes[1]}
-                        pulseNew={newInteractionIds.size > 0}
-                      />
-                    </div>
-                  )}
-
-                  {/* Bottom-right node */}
-                  {allNodes[2] && (
-                    <div className="absolute right-[15%] md:right-[20%] bottom-0" style={{ zIndex: 1 }}>
-                      <NetworkNode
-                        {...allNodes[2]}
-                        pulseNew={newInteractionIds.size > 0}
-                      />
-                    </div>
-                  )}
-
-                  {/* Extra nodes (if more than 3) */}
-                  {allNodes.slice(3).map((node, idx) => (
-                    <div
-                      key={idx}
-                      className="absolute"
-                      style={{
-                        left: `${50 + 30 * Math.cos((idx * Math.PI) / 3)}%`,
-                        top: `${50 + 30 * Math.sin((idx * Math.PI) / 3)}%`,
-                        transform: "translate(-50%, -50%)",
-                        zIndex: 1,
-                      }}
-                    >
-                      <NetworkNode {...node} pulseNew={false} />
-                    </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[rgba(0,240,255,0.05)]">
+            {/* Connection flow */}
+            <div className="mx-5 mb-4">
+              <div className="h-[2px] rounded-full bg-gradient-to-r from-[#ef4444]/10 via-[#3b82f6]/15 to-[#10b981]/10 relative overflow-hidden">
+                <div
+                  className="absolute top-0 bottom-0 w-1/4 bg-gradient-to-r from-transparent via-[rgba(0,240,255,0.35)] to-transparent rounded-full"
+                  style={{ animation: "flowRight 3s linear infinite" }}
+                />
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 pb-5">
               {[
-                { label: "Total A2A", value: summary.total_interactions, color: "var(--accent-primary)" },
+                { label: "Total Challenges", value: summary.total_interactions, color: "var(--accent-primary)" },
+                { label: "Avg A2A Score", value: avgJudgeScore != null ? `${avgJudgeScore}/100` : "-", color: avgJudgeScore ? getScoreColor(avgJudgeScore) : "#64748b" },
+                { label: "Online Peers", value: summary.unique_peers, color: "#a855f7" },
                 { label: "On-Chain", value: summary.successful_on_chain, color: "#10b981" },
-                { label: "HTTP Only", value: summary.http_only, color: "#f59e0b" },
-                { label: "Unique Peers", value: summary.unique_peers, color: "#a855f7" },
               ].map((stat, i) => (
-                <div key={i} className="bg-[var(--bg-elevated)] p-4">
-                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                    {stat.label}
-                  </p>
-                  <p className="text-2xl font-bold" style={{ color: stat.color }}>
+                <div
+                  key={i}
+                  className="px-4 py-3 rounded-xl bg-[var(--bg-surface)] border border-[rgba(0,240,255,0.04)]"
+                >
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">{stat.label}</p>
+                  <p className="text-xl font-bold" style={{ color: stat.color }}>
                     {stat.value}
                   </p>
                 </div>
@@ -651,36 +907,27 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
             </div>
 
             {/* Interaction Feed */}
-            <div className="p-6">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-secondary)]" />
-                Interaction Feed
-                {recentInteractions.length > 0 && (
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-[var(--bg-surface)] text-[var(--text-muted)]">
-                    {recentInteractions.length}
-                  </span>
-                )}
-              </h3>
+            <div className="px-5 pb-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                  Recent Challenges
+                  {recentInteractions.length > 0 && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-[var(--bg-surface)] text-[var(--text-muted)] font-normal">
+                      {recentInteractions.length}
+                    </span>
+                  )}
+                </h3>
+              </div>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+              <div className="space-y-1 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
                 {recentInteractions.length === 0 ? (
                   <div className="text-center py-8">
-                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[var(--bg-surface)] flex items-center justify-center">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--text-muted)]">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </svg>
-                    </div>
-                    <p className="text-sm text-[var(--text-muted)]">
-                      Waiting for A2A interactions...
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
-                      Agents challenge each other every ~2 minutes
-                    </p>
+                    <p className="text-sm text-[var(--text-muted)]">Waiting for A2A interactions...</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-1">Agents challenge each other every ~2 minutes</p>
                   </div>
                 ) : (
                   [...recentInteractions].reverse().map((interaction, idx) => (
-                    <InteractionItem
+                    <InteractionRow
                       key={interaction.timestamp + idx}
                       interaction={interaction}
                       isNew={newInteractionIds.has(interaction.timestamp)}
@@ -690,25 +937,18 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
               </div>
             </div>
 
-            {/* A2A Protocol info */}
-            <div className="m-6 mt-0 p-4 rounded-xl bg-[rgba(0,240,255,0.03)] border border-[rgba(0,240,255,0.1)]">
+            {/* Protocol info */}
+            <div className="mx-5 mb-5 p-3.5 rounded-xl bg-[rgba(0,240,255,0.02)] border border-[rgba(0,240,255,0.06)]">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[rgba(0,240,255,0.1)] flex items-center justify-center flex-shrink-0">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-[var(--accent-primary)]">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-                    <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="text-sm font-medium text-[var(--accent-primary)] mb-1">
-                    A2A Protocol Flow
-                  </h4>
-                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                    Agents discover peers via HTTP, send challenge questions, verify answers,
-                    and record results on-chain. Each interaction creates an immutable audit trail
-                    on Solana devnet with cryptographic proofs.
-                  </p>
-                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-[var(--text-muted)] flex-shrink-0 mt-0.5">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                  <strong className="text-[var(--text-secondary)]">Challenge Flow:</strong>{" "}
+                  Select domain-specific question &rarr; HTTP challenge &rarr; LLM Judge scores (0-100) &rarr; On-chain record (nonce-based PDA) &rarr; Reputation update.
+                  Each agent specializes in a domain (DeFi, Security, Solana) and challenges peers on their weaknesses.
+                </p>
               </div>
             </div>
           </>

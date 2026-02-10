@@ -3,7 +3,7 @@ use crate::state::{AgentAccount, Challenge, ChallengeStatus};
 use crate::errors::RegistryError;
 
 #[derive(Accounts)]
-#[instruction(question: String, expected_hash: String)]
+#[instruction(question: String, expected_hash: String, nonce: u64)]
 pub struct CreateChallenge<'info> {
     #[account(mut)]
     pub challenger: Signer<'info>,
@@ -19,7 +19,7 @@ pub struct CreateChallenge<'info> {
     )]
     pub agent: Account<'info, AgentAccount>,
 
-    /// The challenge account (PDA derived from agent + challenger + timestamp)
+    /// The challenge account (PDA derived from agent + challenger + nonce)
     #[account(
         init,
         payer = challenger,
@@ -28,6 +28,7 @@ pub struct CreateChallenge<'info> {
             Challenge::SEED_PREFIX,
             agent.key().as_ref(),
             challenger.key().as_ref(),
+            nonce.to_le_bytes().as_ref(),
         ],
         bump
     )]
@@ -40,6 +41,7 @@ pub fn handler(
     ctx: Context<CreateChallenge>,
     question: String,
     expected_hash: String,
+    nonce: u64,
 ) -> Result<()> {
     // Validate inputs
     require!(question.len() <= 256, RegistryError::QuestionTooLong);
@@ -59,6 +61,7 @@ pub fn handler(
     challenge.created_at = clock.unix_timestamp;
     challenge.expires_at = clock.unix_timestamp + Challenge::DEFAULT_DURATION;
     challenge.responded_at = 0;
+    challenge.nonce = nonce;
     challenge.bump = ctx.bumps.challenge;
 
     msg!(

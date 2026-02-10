@@ -18,6 +18,7 @@ import asyncio
 import logging
 import hashlib
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
@@ -49,7 +50,7 @@ from config import (
     LLM_JUDGE_MODEL,
     LLM_JUDGE_PROVIDER,
 )
-from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, SLMEvaluator, EvaluationDomain, LLMJudge
+from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, generate_model_identifier_hash, SLMEvaluator, EvaluationDomain, LLMJudge, QuestionSelector
 from solana_client import AgentRegistryClient
 
 # Agent Configuration
@@ -72,6 +73,7 @@ logger = logging.getLogger(__name__)
 client: AgentRegistryClient = None
 challenge_handler: ChallengeHandler = None
 llm_judge: Optional[LLMJudge] = None
+question_selector: Optional[QuestionSelector] = None
 agent_info: dict = None
 challenge_poll_task: Optional[asyncio.Task] = None
 self_eval_task: Optional[asyncio.Task] = None
@@ -79,19 +81,12 @@ cross_agent_task: Optional[asyncio.Task] = None
 agent_activity_log: list = []
 agent_startup_time: datetime = None
 evaluation_history: list = []
+certification_history: list = []  # Track intelligence certifications
 cross_agent_challenges: list = []  # Track challenges we've created
 a2a_interactions: list = []  # Track full A2A HTTP interactions
 peer_registry: dict = {}  # peer_url -> {name, status, last_seen, agent_id, ...}
 http_client: Optional[httpx.AsyncClient] = None
-
-# Challenge questions for autonomous agent-to-agent verification
-CROSS_AGENT_QUESTIONS = [
-    {"question": "What blockchain are you registered on?", "expected": "solana"},
-    {"question": "Are you an AI agent?", "expected": "yes"},
-    {"question": "What is 2 + 2?", "expected": "4"},
-    {"question": "What is your primary function?", "expected": "agent"},
-    {"question": "Can you prove your identity on-chain?", "expected": "yes"},
-]
+used_challenge_pda_pairs: set = set()  # Track exhausted on-chain PDA slots
 
 
 def log_activity(action: str, status: str, details: dict = None):
@@ -291,17 +286,16 @@ async def autonomous_cross_agent_challenges():
     Background task: REAL A2A cross-agent challenges via HTTP + on-chain.
 
     Full autonomous flow (no human intervention):
-    1. Discover peer agents via HTTP (A2A protocol)
-    2. Pick a peer → HTTP GET /status to verify it's alive
-    3. Select a challenge question based on agent personality
-    4. HTTP POST /challenge to peer → get their answer
-    5. Create challenge on-chain with expected hash
-    6. Submit peer's response on-chain → reputation updates
-    7. Log entire interaction for audit trail
+    1. Select domain-specific question via QuestionSelector (personality-weighted, no repeats)
+    2. HTTP POST /challenge to peer -> peer generates LLM answer (cached)
+    3. LLM Judge scores peer's answer (shows AI evaluation)
+    4. Create on-chain challenge with expected_hash = peer's answer hash
+    5. POST to peer's /challenge/submit -> peer submits on-chain -> REPUTATION CHANGES
+    6. After 6 PDA slots exhausted: steps 1-3 continue (HTTP + LLM), skip 4-5
 
     This is the KEY differentiator for "Most Agentic" prize.
     """
-    global cross_agent_challenges, a2a_interactions
+    global cross_agent_challenges, a2a_interactions, agent_info, used_challenge_pda_pairs
 
     log_activity("a2a_challenges", "started", {
         "interval_seconds": CROSS_AGENT_CHALLENGE_INTERVAL,
@@ -334,35 +328,9 @@ async def autonomous_cross_agent_challenges():
             ]
 
             if not online_peers:
-                # Fallback: try on-chain discovery
                 log_activity("a2a_challenge", "no_http_peers", {
                     "configured": len(AGENT_PEERS),
-                    "fallback": "on_chain_discovery",
                 })
-                try:
-                    discovered = await client.discover_agents(max_agents=20)
-                    my_pda = str(client._get_agent_pda(client.keypair.pubkey(), agent_info["agent_id"])[0])
-                    on_chain_others = [a for a in discovered if a.get("pda") != my_pda]
-                    if on_chain_others:
-                        # Create basic challenge on-chain only (no HTTP)
-                        target = on_chain_others[challenge_index % len(on_chain_others)]
-                        question_data = CROSS_AGENT_QUESTIONS[challenge_index % len(CROSS_AGENT_QUESTIONS)]
-                        expected_hash = hashlib.sha256(question_data["expected"].encode()).hexdigest()
-                        challenge_index += 1
-                        try:
-                            from solders.pubkey import Pubkey
-                            tx = await client.create_challenge_for_agent(
-                                target_agent_pda=Pubkey.from_string(target["pda"]),
-                                question=question_data["question"],
-                                expected_hash=expected_hash,
-                            )
-                            log_activity("a2a_challenge", "on_chain_only", {
-                                "target": target["name"], "tx": tx[:16] + "...",
-                            })
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
                 await asyncio.sleep(CROSS_AGENT_CHALLENGE_INTERVAL)
                 continue
 
@@ -371,11 +339,9 @@ async def autonomous_cross_agent_challenges():
             peer_url = peer["url"]
             challenge_index += 1
 
-            # Step 3: Select challenge question
-            question_data = CROSS_AGENT_QUESTIONS[challenge_index % len(CROSS_AGENT_QUESTIONS)]
-            question = question_data["question"]
-            expected_keyword = question_data["expected"]
-            expected_hash = hashlib.sha256(expected_keyword.encode()).hexdigest()
+            # Step 3: Select domain-specific question via QuestionSelector
+            selected_q = question_selector.select_question(peer["name"])
+            question = selected_q.question
 
             interaction = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -383,22 +349,28 @@ async def autonomous_cross_agent_challenges():
                 "target": peer["name"],
                 "target_url": peer_url,
                 "question": question,
+                "question_domain": selected_q.domain,
+                "question_difficulty": selected_q.difficulty,
                 "steps": [],
             }
 
             log_activity("a2a_challenge", "targeting_peer", {
                 "peer": peer["name"],
                 "peer_url": peer_url,
-                "question": question,
+                "question": question[:60],
+                "domain": selected_q.domain,
+                "difficulty": selected_q.difficulty,
             })
 
             # Step 4: HTTP POST /challenge to peer agent (A2A communication)
+            # Use a dummy expected_hash - we want the peer's actual answer
+            dummy_hash = hashlib.sha256(b"challenge_probe").hexdigest()
             peer_answer = None
             peer_answer_hash = None
             try:
                 challenge_payload = {
                     "question": question,
-                    "expected_hash": expected_hash,
+                    "expected_hash": dummy_hash,
                     "challenger": str(client.keypair.pubkey()),
                 }
                 resp = await http_client.post(
@@ -410,19 +382,17 @@ async def autonomous_cross_agent_challenges():
                     result = resp.json()
                     peer_answer = result.get("answer", "")
                     peer_answer_hash = result.get("answer_hash", "")
-                    matches = result.get("matches", False)
 
                     interaction["steps"].append({
                         "step": "a2a_http_challenge",
                         "status": "success",
-                        "peer_answer_preview": peer_answer[:80],
-                        "hash_matches": matches,
+                        "peer_answer_preview": peer_answer,
+                        "peer_answer_hash": peer_answer_hash[:16] + "...",
                     })
 
                     log_activity("a2a_challenge", "peer_responded", {
                         "peer": peer["name"],
                         "answer_preview": peer_answer[:60],
-                        "matches": matches,
                     })
                 else:
                     interaction["steps"].append({
@@ -446,11 +416,41 @@ async def autonomous_cross_agent_challenges():
                     "error": str(e)[:80],
                 })
 
-            # Step 5: Create challenge on-chain (if we got a response)
+            # Step 5: LLM Judge scores peer's answer
+            judge_result = None
+            if peer_answer and llm_judge:
+                try:
+                    judge_result = await llm_judge.ajudge(
+                        question=question,
+                        expected=selected_q.reference_answer,
+                        answer=peer_answer,
+                    )
+                    interaction["steps"].append({
+                        "step": "llm_judge_scoring",
+                        "status": "scored",
+                        "score": judge_result.score,
+                        "explanation": judge_result.explanation,
+                        "method": judge_result.method,
+                    })
+                    log_activity("a2a_challenge", "judge_scored", {
+                        "peer": peer["name"],
+                        "score": judge_result.score,
+                        "method": judge_result.method,
+                        "explanation": judge_result.explanation[:60],
+                    })
+                except Exception as e:
+                    interaction["steps"].append({
+                        "step": "llm_judge_scoring",
+                        "status": "error",
+                        "error": str(e)[:100],
+                    })
+
+            # Step 6: On-chain challenge creation + submit (if PDA slot available)
             on_chain_tx = None
+            submit_tx = None
             if peer_answer_hash:
                 try:
-                    # Discover target's on-chain PDA using known peer owner pubkeys
+                    # Find target's on-chain PDA
                     known_owners = [
                         p["owner"] for p in peer_registry.values()
                         if p.get("owner") and p.get("status") == "online"
@@ -465,21 +465,101 @@ async def autonomous_cross_agent_challenges():
                     if target_on_chain:
                         from solders.pubkey import Pubkey
                         target_pda = Pubkey.from_string(target_on_chain["pda"])
-                        on_chain_tx = await client.create_challenge_for_agent(
-                            target_agent_pda=target_pda,
-                            question=question,
-                            expected_hash=peer_answer_hash,
-                        )
-                        interaction["steps"].append({
-                            "step": "on_chain_challenge",
-                            "status": "created",
-                            "tx": on_chain_tx,
-                            "target_pda": target_on_chain["pda"],
-                        })
-                        log_activity("a2a_challenge", "on_chain_created", {
-                            "peer": peer["name"],
-                            "tx": on_chain_tx[:16] + "...",
-                        })
+                        my_pubkey = str(client.keypair.pubkey())
+                        pda_pair_key = f"{target_on_chain['pda']}:{my_pubkey}"
+
+                        if pda_pair_key not in used_challenge_pda_pairs:
+                            # Create on-chain challenge with peer's answer hash as expected
+                            try:
+                                on_chain_tx = await client.create_challenge_for_agent(
+                                    target_agent_pda=target_pda,
+                                    question=question,
+                                    expected_hash=peer_answer_hash,
+                                )
+                                interaction["steps"].append({
+                                    "step": "on_chain_challenge",
+                                    "status": "created",
+                                    "tx": on_chain_tx,
+                                    "target_pda": target_on_chain["pda"],
+                                })
+                                log_activity("a2a_challenge", "on_chain_created", {
+                                    "peer": peer["name"],
+                                    "tx": on_chain_tx[:16] + "...",
+                                })
+                            except Exception as e:
+                                error_msg = str(e)
+                                if "already in use" in error_msg.lower():
+                                    used_challenge_pda_pairs.add(pda_pair_key)
+                                    interaction["steps"].append({
+                                        "step": "on_chain_challenge",
+                                        "status": "pda_exhausted",
+                                        "reason": "PDA slot already used for this pair",
+                                    })
+                                else:
+                                    interaction["steps"].append({
+                                        "step": "on_chain_challenge",
+                                        "status": "failed",
+                                        "error": error_msg[:100],
+                                    })
+
+                            # Step 7: POST to peer's /challenge/submit -> reputation changes!
+                            if on_chain_tx:
+                                try:
+                                    submit_payload = {
+                                        "question": question,
+                                        "expected_hash": peer_answer_hash,
+                                        "challenger": str(client.keypair.pubkey()),
+                                    }
+                                    submit_resp = await http_client.post(
+                                        f"{peer_url}/challenge/submit",
+                                        json=submit_payload,
+                                        timeout=30.0,
+                                    )
+                                    if submit_resp.status_code == 200:
+                                        submit_result = submit_resp.json()
+                                        submit_tx = submit_result.get("tx", "")
+                                        new_rep = submit_result.get("new_reputation", 0)
+                                        used_challenge_pda_pairs.add(pda_pair_key)
+
+                                        interaction["steps"].append({
+                                            "step": "on_chain_submit",
+                                            "status": "success",
+                                            "tx": submit_tx,
+                                            "peer_new_reputation": new_rep,
+                                        })
+                                        log_activity("a2a_challenge", "on_chain_submit_success", {
+                                            "peer": peer["name"],
+                                            "tx": submit_tx[:16] + "..." if submit_tx else "none",
+                                            "new_reputation": new_rep,
+                                        })
+
+                                        # Refresh our own agent info too
+                                        try:
+                                            agent_info = await client.get_agent(
+                                                client.keypair.pubkey(),
+                                                agent_info["agent_id"]
+                                            )
+                                        except Exception:
+                                            pass
+                                    else:
+                                        interaction["steps"].append({
+                                            "step": "on_chain_submit",
+                                            "status": "failed",
+                                            "http_status": submit_resp.status_code,
+                                            "error": submit_resp.text[:100],
+                                        })
+                                except Exception as e:
+                                    interaction["steps"].append({
+                                        "step": "on_chain_submit",
+                                        "status": "error",
+                                        "error": str(e)[:100],
+                                    })
+                        else:
+                            interaction["steps"].append({
+                                "step": "on_chain_challenge",
+                                "status": "skipped_pda_exhausted",
+                                "reason": f"PDA pair already used ({len(used_challenge_pda_pairs)} used)",
+                            })
                     else:
                         interaction["steps"].append({
                             "step": "on_chain_challenge",
@@ -488,17 +568,17 @@ async def autonomous_cross_agent_challenges():
                         })
 
                 except Exception as e:
-                    error_msg = str(e)
-                    status = "exists" if "already in use" in error_msg.lower() else "failed"
                     interaction["steps"].append({
                         "step": "on_chain_challenge",
-                        "status": status,
-                        "error": error_msg[:100],
+                        "status": "error",
+                        "error": str(e)[:100],
                     })
 
             # Record interaction
             interaction["completed_at"] = datetime.now(timezone.utc).isoformat()
             interaction["on_chain_tx"] = on_chain_tx
+            interaction["submit_tx"] = submit_tx
+            interaction["judge_score"] = judge_result.score if judge_result else None
             a2a_interactions.append(interaction)
             if len(a2a_interactions) > 100:
                 a2a_interactions.pop(0)
@@ -509,7 +589,10 @@ async def autonomous_cross_agent_challenges():
                 "target_agent": peer["name"],
                 "target_url": peer_url,
                 "question": question,
+                "domain": selected_q.domain,
                 "tx": on_chain_tx or "http_only",
+                "submit_tx": submit_tx,
+                "judge_score": judge_result.score if judge_result else None,
                 "status": "completed" if peer_answer else "failed",
                 "a2a_http": True,
             })
@@ -571,12 +654,16 @@ class EvaluationResponse(BaseModel):
     breakdown: dict
     result_hash: str
     judge_scores: Optional[dict] = None  # Per-question LLM judge details
+    weighted_score: float = 0.0
+    max_possible: int = 0
+    difficulty_breakdown: Optional[dict] = None
+    certification_level: str = "Uncertified"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler for startup/shutdown"""
-    global client, challenge_handler, llm_judge, agent_info, challenge_poll_task, self_eval_task, agent_startup_time, http_client
+    global client, challenge_handler, llm_judge, question_selector, agent_info, challenge_poll_task, self_eval_task, agent_startup_time, http_client
 
     agent_startup_time = datetime.now(timezone.utc)
     http_client = httpx.AsyncClient(
@@ -602,11 +689,7 @@ async def lifespan(app: FastAPI):
 
     log_activity("agent_startup", "initializing", {"version": AGENT_VERSION})
 
-    # Initialize challenge handler (demo mode, no real LLM)
-    challenge_handler = ChallengeHandler(model_name=AGENT_NAME)
-    logger.info(f"Challenge handler initialized for: {AGENT_NAME}")
-
-    # Initialize LLM Judge for intelligent scoring
+    # Initialize LLM Judge FIRST (needed by challenge handler)
     _api_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
     llm_judge = LLMJudge(
         api_key=_api_key,
@@ -617,13 +700,30 @@ async def lifespan(app: FastAPI):
     judge_mode = f"{LLM_JUDGE_PROVIDER} ({LLM_JUDGE_MODEL})" if llm_judge.is_llm_available else "fuzzy fallback"
     logger.info(f"LLM Judge initialized: {judge_mode}")
 
-    # Compute model hash (demo mode uses generated hash)
+    # Initialize challenge handler with LLM and personality
+    challenge_handler = ChallengeHandler(
+        model_name=AGENT_NAME,
+        llm_judge=llm_judge,
+        personality=AGENT_PERSONALITY,
+    )
+    logger.info(f"Challenge handler initialized for: {AGENT_NAME} (personality={AGENT_PERSONALITY})")
+
+    # Initialize question selector for domain-specific A2A challenges
+    question_selector = QuestionSelector(
+        personality=AGENT_PERSONALITY,
+        llm_judge=llm_judge,
+    )
+    logger.info(f"Question selector initialized: {question_selector.get_stats()}")
+
+    # Compute model hash
+    model_provider = os.environ.get("MODEL_PROVIDER", "anthropic")
+    model_name = os.environ.get("MODEL_NAME", "claude-haiku-4-5")
     if MODEL_PATH and Path(MODEL_PATH).exists():
         model_hash = compute_model_hash(MODEL_PATH)
-        logger.info(f"Model hash computed: {model_hash[:40]}...")
+        logger.info(f"Model hash computed from file: {model_hash[:40]}...")
     else:
-        model_hash = generate_demo_model_hash(AGENT_NAME)
-        logger.info(f"Demo model hash: {model_hash[:40]}...")
+        model_hash = generate_model_identifier_hash(model_provider, model_name)
+        logger.info(f"Model identifier hash ({model_provider}/{model_name}): {model_hash[:40]}...")
 
     # Initialize Solana client
     try:
@@ -740,8 +840,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"    - Self-evaluation: {'ENABLED' if ENABLE_SELF_EVALUATION else 'DISABLED'}")
     logger.info(f"    - Cross-agent challenges: {'ENABLED' if ENABLE_CROSS_AGENT_CHALLENGES else 'DISABLED'}")
     logger.info(f"    - LLM Judge: {LLM_JUDGE_PROVIDER + ' (' + LLM_JUDGE_MODEL + ')' if llm_judge and llm_judge.is_llm_available else 'Fuzzy fallback'}")
+    logger.info(f"    - Question Pool: {len(question_selector.get_stats()['domains'])} domains, {question_selector.get_stats()['total_questions']} questions")
     logger.info(f"    - A2A Peers: {len(AGENT_PEERS)} configured {AGENT_PEERS}")
     logger.info(f"    - Personality: {AGENT_PERSONALITY}")
+    logger.info(f"    - PDA Pairs Used: {len(used_challenge_pda_pairs)}")
     logger.info(f"    - API: http://{API_HOST}:{API_PORT}")
     logger.info("=" * 70)
 
@@ -1084,7 +1186,8 @@ async def list_evaluation_domains():
     return {
         "domains": [d.value for d in EvaluationDomain],
         "passing_score": 60.0,
-        "questions_per_domain": 5,
+        "questions_per_domain": 10,
+        "certification_levels": ["Expert (>=85)", "Proficient (>=70)", "Basic (>=50)", "Uncertified (<50)"],
         "judge": {
             "enabled": LLM_JUDGE_ENABLED,
             "provider": LLM_JUDGE_PROVIDER if (llm_judge and llm_judge.is_llm_available) else "fuzzy",
@@ -1177,6 +1280,10 @@ async def run_evaluation(domain: str, request: EvaluationRequest):
         breakdown=result.breakdown,
         result_hash=result.result_hash,
         judge_scores=result.judge_scores if result.judge_scores else None,
+        weighted_score=result.weighted_score,
+        max_possible=result.max_possible,
+        difficulty_breakdown=result.difficulty_breakdown,
+        certification_level=result.certification_level,
     )
 
 
@@ -1254,6 +1361,134 @@ async def submit_challenge_on_chain(request: ChallengeRequest):
     except Exception as e:
         logger.error(f"On-chain submission failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Intelligence Certification Endpoints
+# =============================================================================
+
+@app.post("/certify")
+async def run_certification():
+    """
+    Run full intelligence certification across ALL domains.
+
+    Evaluates the agent on DeFi, Solana, and Security domains,
+    computes a weighted certification score, and stores the
+    certification hash on-chain via the audit system.
+
+    Returns a comprehensive certification report with:
+    - Per-domain scores and certification levels
+    - Overall certification level (Expert/Proficient/Basic/Uncertified)
+    - On-chain certification hash for verification
+    """
+    global certification_history
+
+    if challenge_handler is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+
+    log_activity("certification", "started", {"domains": ["defi", "solana", "security"]})
+
+    # Run evaluation across ALL domains
+    domain_results = {}
+    for domain in EvaluationDomain:
+        def agent_respond(question: str) -> str:
+            response = challenge_handler.respond_to_challenge(question)
+            return response.answer
+
+        evaluator = SLMEvaluator(agent_response_fn=agent_respond, llm_judge=llm_judge)
+        result = evaluator.evaluate(domain)
+        domain_results[domain.value] = {
+            "weighted_score": result.weighted_score,
+            "certification_level": result.certification_level,
+            "questions_correct": result.questions_correct,
+            "questions_total": result.questions_total,
+            "difficulty_breakdown": result.difficulty_breakdown,
+            "time_taken_ms": result.time_taken_ms,
+            "result_hash": result.result_hash,
+        }
+
+    # Compute overall certification
+    domain_scores = [r["weighted_score"] for r in domain_results.values()]
+    avg_score = sum(domain_scores) / len(domain_scores) if domain_scores else 0
+
+    # Determine overall certification level
+    if avg_score >= 85:
+        overall_level = "Expert"
+    elif avg_score >= 70:
+        overall_level = "Proficient"
+    elif avg_score >= 50:
+        overall_level = "Basic"
+    else:
+        overall_level = "Uncertified"
+
+    # Create certification hash for on-chain storage
+    cert_data = json.dumps({
+        "agent": AGENT_NAME,
+        "model_hash": agent_info.get("model_hash", "") if agent_info else "",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "overall_score": round(avg_score, 2),
+        "overall_level": overall_level,
+        "domains": domain_results,
+    }, sort_keys=True)
+    cert_hash = hashlib.sha256(cert_data.encode()).hexdigest()
+
+    # Store on-chain via existing audit system (if connected)
+    on_chain_tx = None
+    if client and agent_info and agent_info.get("agent_id", -1) >= 0:
+        try:
+            on_chain_tx = await client.log_audit(
+                agent_id=agent_info["agent_id"],
+                action_type=4,  # EvaluationCompleted
+                context_risk=0,
+                details_hash=cert_hash,
+            )
+            log_activity("certification", "on_chain_stored", {
+                "tx": on_chain_tx[:16] + "..." if on_chain_tx else "none",
+            })
+        except Exception as e:
+            logger.warning(f"Failed to store certification on-chain: {e}")
+
+    # Build certification record
+    cert_record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "agent": AGENT_NAME,
+        "model_hash": agent_info.get("model_hash", "") if agent_info else "",
+        "overall_score": round(avg_score, 2),
+        "overall_level": overall_level,
+        "domain_scores": domain_results,
+        "cert_hash": cert_hash,
+        "on_chain_tx": on_chain_tx,
+    }
+
+    certification_history.append(cert_record)
+    if len(certification_history) > 20:
+        certification_history.pop(0)
+
+    log_activity("certification", "completed", {
+        "overall_score": round(avg_score, 2),
+        "level": overall_level,
+        "cert_hash": cert_hash[:16],
+    })
+
+    return cert_record
+
+
+@app.get("/certifications")
+async def get_certifications():
+    """
+    Get intelligence certification history.
+
+    Returns all stored certifications with their on-chain hashes
+    for independent verification.
+    """
+    latest = certification_history[-1] if certification_history else None
+    return {
+        "agent_name": AGENT_NAME,
+        "model_hash": agent_info.get("model_hash", "") if agent_info else "",
+        "total_certifications": len(certification_history),
+        "latest_certification": latest,
+        "certification_history": certification_history,
+    }
 
 
 @click.command()

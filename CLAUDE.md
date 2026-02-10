@@ -73,6 +73,25 @@ agent-poi/
 | `app/src/hooks/useSolanaEvents.ts` | WebSocket subscription hook |
 | `app/public/skill.json` | A2A Protocol discovery endpoint |
 
+## CRITICAL: Python Virtual Environment
+
+**ALWAYS use the venv when running Python agent code:**
+```bash
+cd agent
+source venv/bin/activate
+# Then run any python command
+```
+
+If the venv doesn't exist, create it first:
+```bash
+cd agent
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Never run agent Python code with system Python - always activate venv first.**
+
 ## Development Commands
 
 ### Build & Deploy Solana Program
@@ -82,11 +101,19 @@ anchor build
 anchor deploy --provider.cluster devnet
 ```
 
-### Run Python Agent
+### Run Python Agent (Single)
 ```bash
 cd agent
 source venv/bin/activate
-WALLET_PATH=~/.config/solana/id.json python main.py --port 8000
+WALLET_PATH=wallets/alpha.json AGENT_NAME=PoI-Alpha python main.py --port 8001
+```
+
+### Run Python Agent (Multi - Preferred)
+```bash
+cd agent
+source venv/bin/activate
+ANTHROPIC_API_KEY=<key> python multi_main.py
+# Runs all 3 agents on port 10000: /alpha, /beta, /gamma
 ```
 
 ### Run Next.js Dashboard

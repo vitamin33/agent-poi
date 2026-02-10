@@ -3,6 +3,7 @@ use crate::state::{AgentAccount, Challenge, ChallengeStatus, RegistryState};
 use crate::errors::RegistryError;
 
 #[derive(Accounts)]
+#[instruction(response_hash: String, nonce: u64)]
 pub struct SubmitResponse<'info> {
     /// Agent owner submitting the response
     #[account(mut)]
@@ -34,6 +35,7 @@ pub struct SubmitResponse<'info> {
             Challenge::SEED_PREFIX,
             agent.key().as_ref(),
             challenge.challenger.as_ref(),
+            nonce.to_le_bytes().as_ref(),
         ],
         bump = challenge.bump,
         constraint = challenge.agent == agent.key() @ RegistryError::ChallengeMismatch,
@@ -45,6 +47,7 @@ pub struct SubmitResponse<'info> {
 pub fn handler(
     ctx: Context<SubmitResponse>,
     response_hash: String,
+    _nonce: u64,
 ) -> Result<()> {
     let challenge = &mut ctx.accounts.challenge;
     let agent = &mut ctx.accounts.agent;

@@ -49,6 +49,9 @@ pub struct Challenge {
     /// Unix timestamp when agent responded (if any)
     pub responded_at: i64,
 
+    /// Nonce for unique PDA derivation (allows multiple challenges per agent-challenger pair)
+    pub nonce: u64,
+
     /// Bump seed for PDA derivation
     pub bump: u8,
 }

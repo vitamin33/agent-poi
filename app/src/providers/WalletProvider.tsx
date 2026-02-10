@@ -46,8 +46,17 @@ export const AppWalletProvider: FC<Props> = ({ children }) => {
     return standardWallets;
   }, []);
 
+  // Solana devnet public WebSocket is flaky; configure with longer keepalive
+  const connectionConfig = useMemo(
+    () => ({
+      wsEndpoint: endpoint.replace("https", "wss"),
+      commitment: "confirmed" as const,
+    }),
+    [endpoint]
+  );
+
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
       <WalletProvider wallets={wallets} autoConnect={false}>
         <WalletModalProvider>
           <AutoConnectWallet>

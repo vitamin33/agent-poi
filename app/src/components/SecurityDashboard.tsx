@@ -17,7 +17,8 @@ interface SecurityDashboardProps {
 
 /**
  * SentinelAgent Security Dashboard
- * Displays audit trail and security metrics for registered agents
+ * Displays audit trail and security metrics for registered agents.
+ * Combines on-chain agent data with live A2A challenge events.
  */
 export function SecurityDashboard({ agents }: SecurityDashboardProps) {
   const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
@@ -29,10 +30,12 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
     securityAlerts: 0,
   });
 
-  const generateActivityFeed = useCallback(() => {
+  // Build on-chain activity entries (registrations, verifications, challenge counters)
+  const buildOnChainFeed = useCallback((): ActivityEntry[] => {
     const feed: ActivityEntry[] = [];
 
     agents.forEach((agent) => {
+      // Registration event — real on-chain timestamp
       feed.push({
         timestamp: new Date(agent.createdAt.toNumber() * 1000).toISOString(),
         action: "Agent Registered",
@@ -41,6 +44,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
         details: `Model: ${agent.modelHash.substring(0, 20)}...`,
       });
 
+      // Verification event — real on-chain timestamp
       if (agent.verified) {
         feed.push({
           timestamp: new Date(agent.updatedAt.toNumber() * 1000).toISOString(),
@@ -51,30 +55,70 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
         });
       }
 
-      for (let i = 0; i < agent.challengesPassed; i++) {
+      // On-chain challenge counters — use updatedAt as best-available timestamp
+      const updatedTs = new Date(agent.updatedAt.toNumber() * 1000).toISOString();
+      if (agent.challengesPassed > 0) {
         feed.push({
-          timestamp: new Date(Date.now() - Math.random() * 86400000).toISOString(),
+          timestamp: updatedTs,
           action: "Challenge Passed",
           agentName: agent.name,
           riskLevel: "none",
-          details: "+100 reputation",
+          details: `${agent.challengesPassed} on-chain ${agent.challengesPassed === 1 ? "challenge" : "challenges"} • +${agent.challengesPassed * 100} reputation`,
         });
       }
-
-      for (let i = 0; i < agent.challengesFailed; i++) {
+      if (agent.challengesFailed > 0) {
         feed.push({
-          timestamp: new Date(Date.now() - Math.random() * 86400000).toISOString(),
+          timestamp: updatedTs,
           action: "Challenge Failed",
           agentName: agent.name,
           riskLevel: "medium",
-          details: "-50 reputation",
+          details: `${agent.challengesFailed} on-chain ${agent.challengesFailed === 1 ? "challenge" : "challenges"} • -${agent.challengesFailed * 50} reputation`,
         });
       }
     });
 
-    feed.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return feed.slice(0, 20);
+    return feed;
   }, [agents]);
+
+  // Fetch live A2A interactions from the Python agent API
+  const fetchA2AEvents = useCallback(async (): Promise<ActivityEntry[]> => {
+    try {
+      const res = await fetch("/api/a2a?endpoint=interactions");
+      if (!res.ok) return [];
+      const data = await res.json();
+
+      const interactions = data.recent_interactions || [];
+      return interactions.map(
+        (ix: Record<string, unknown>) => {
+          const challenger = String(ix.challenger || "Unknown");
+          const target = String(ix.target || "Unknown");
+          const domain = String(ix.question_domain || "general");
+          const ts = String(ix.timestamp || new Date().toISOString());
+
+          // Extract judge score from steps
+          const steps = (ix.steps as Record<string, unknown>[]) || [];
+          const judgeStep = steps.find(
+            (s) => s.step === "llm_judge_scoring" && s.status === "scored"
+          );
+          const score = judgeStep ? Number(judgeStep.score) : null;
+          const passed = score !== null && score >= 50;
+
+          const scoreLabel = score !== null ? ` • Score: ${score}/100` : "";
+          const domainLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+
+          return {
+            timestamp: ts,
+            action: passed ? "A2A Challenge Passed" : score !== null ? "A2A Challenge Failed" : "A2A Challenge",
+            agentName: `${challenger} → ${target}`,
+            riskLevel: passed ? "none" as const : score !== null ? "low" as const : "none" as const,
+            details: `${domainLabel}${scoreLabel}`,
+          };
+        }
+      );
+    } catch {
+      return [];
+    }
+  }, []);
 
   useEffect(() => {
     if (agents.length === 0) return;
@@ -94,8 +138,30 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
       securityAlerts: agents.filter((a) => a.reputationScore < 3000).length,
     });
 
-    setActivityFeed(generateActivityFeed());
-  }, [agents, generateActivityFeed]);
+    // Build combined feed: on-chain + live A2A events
+    const onChainFeed = buildOnChainFeed();
+    fetchA2AEvents().then((a2aFeed) => {
+      const combined = [...onChainFeed, ...a2aFeed];
+      combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setActivityFeed(combined.slice(0, 30));
+    });
+  }, [agents, buildOnChainFeed, fetchA2AEvents]);
+
+  // Poll for new A2A events every 30s
+  useEffect(() => {
+    if (agents.length === 0) return;
+
+    const interval = setInterval(() => {
+      const onChainFeed = buildOnChainFeed();
+      fetchA2AEvents().then((a2aFeed) => {
+        const combined = [...onChainFeed, ...a2aFeed];
+        combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setActivityFeed(combined.slice(0, 30));
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [agents, buildOnChainFeed, fetchA2AEvents]);
 
   const getRiskBadge = (level: ActivityEntry["riskLevel"]) => {
     const styles: Record<ActivityEntry["riskLevel"], { bg: string; text: string; border: string }> = {
@@ -123,9 +189,33 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
       "Agent Verified": "✓",
       "Challenge Passed": "✓",
       "Challenge Failed": "✗",
+      "A2A Challenge Passed": "⚡",
+      "A2A Challenge Failed": "⚡",
+      "A2A Challenge": "⚡",
       "Security Alert": "⚠",
     };
     return icons[action] || "•";
+  };
+
+  const getIconStyle = (action: string, riskLevel: ActivityEntry["riskLevel"]) => {
+    if (action.startsWith("A2A")) {
+      return {
+        background: "rgba(0,240,255,0.1)",
+        color: "#00f0ff",
+      };
+    }
+    return {
+      background: riskLevel === "none"
+        ? "rgba(16,185,129,0.1)"
+        : riskLevel === "medium"
+        ? "rgba(245,158,11,0.1)"
+        : "rgba(239,68,68,0.1)",
+      color: riskLevel === "none"
+        ? "#10b981"
+        : riskLevel === "medium"
+        ? "#f59e0b"
+        : "#ef4444",
+    };
   };
 
   const formatTime = (timestamp: string) => {
@@ -171,7 +261,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
         {[
           { label: "Total Agents", value: networkStats.totalAgents, color: "var(--accent-primary)" },
           { label: "Verified", value: networkStats.verifiedAgents, color: "#10b981" },
-          { label: "Avg Reputation", value: `${networkStats.avgReputation.toFixed(1)}%`, color: "#a855f7" },
+          { label: "On-Chain Rep", value: `${networkStats.avgReputation.toFixed(1)}%`, color: "#a855f7" },
           { label: "Challenges", value: networkStats.totalChallenges, color: "#3b82f6" },
           { label: "Alerts", value: networkStats.securityAlerts, color: "#ef4444" },
         ].map((stat, i) => (
@@ -207,18 +297,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
                 <div className="flex items-center gap-3">
                   <div
                     className="w-8 h-8 rounded-lg flex items-center justify-center text-sm"
-                    style={{
-                      background: entry.riskLevel === "none"
-                        ? "rgba(16,185,129,0.1)"
-                        : entry.riskLevel === "medium"
-                        ? "rgba(245,158,11,0.1)"
-                        : "rgba(239,68,68,0.1)",
-                      color: entry.riskLevel === "none"
-                        ? "#10b981"
-                        : entry.riskLevel === "medium"
-                        ? "#f59e0b"
-                        : "#ef4444",
-                    }}
+                    style={getIconStyle(entry.action, entry.riskLevel)}
                   >
                     {getActionIcon(entry.action)}
                   </div>

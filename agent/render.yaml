@@ -32,6 +32,10 @@ services:
       - key: AGENT_PUBLIC_URL
         value: https://agent-poi-network.onrender.com
 
+      # LLM-as-Judge (Anthropic Claude Haiku)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
       # Per-agent wallet JSON strings (set manually in Render dashboard)
       # Each agent needs its own Solana wallet for on-chain registration
       - key: WALLET_JSON_ALPHA
