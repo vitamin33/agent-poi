@@ -164,7 +164,7 @@ class AgentRegistryClient:
 
         Args:
             agent_id: The agent's ID
-            action_type: ActionType enum value (4 = EvaluationCompleted)
+            action_type: ActionType enum index (4=ChallengePassed, 9=Custom)
             context_risk: Risk score 0-100
             details_hash: SHA256 hash of audit details (64 hex chars)
 
@@ -180,8 +180,15 @@ class AgentRegistryClient:
         summary_pda, _ = self._get_audit_summary_pda(agent_pda)
         entry_pda, _ = self._get_audit_entry_pda(agent_pda, audit_index)
 
-        # Build ActionType as enum variant
-        action_type_arg = {"evaluation_completed": {}} if action_type == 4 else {"generic_action": {}}
+        # Build ActionType enum via AnchorPy type system (needs .index for Borsh serialization)
+        AT = self.program.type["ActionType"]
+        action_type_map = {
+            0: AT.AgentRegistered, 1: AT.AgentUpdated, 2: AT.AgentVerified,
+            3: AT.ChallengeCreated, 4: AT.ChallengePassed, 5: AT.ChallengeFailed,
+            6: AT.ReputationIncreased, 7: AT.ReputationDecreased,
+            8: AT.SecurityAlert, 9: AT.Custom,
+        }
+        action_type_arg = action_type_map.get(action_type, AT.Custom)()
 
         tx = await self.program.rpc["log_audit"](
             action_type_arg,
@@ -460,6 +467,41 @@ class AgentRegistryClient:
 
         logger.info(f"Challenge created for agent {target_agent_pda}: {tx} (nonce={nonce})")
         return str(tx), nonce
+
+    async def close_challenge(
+        self,
+        target_agent_pda: Pubkey,
+        nonce: int,
+    ) -> str:
+        """
+        Close a resolved challenge PDA and reclaim rent (~0.012 SOL).
+
+        Critical mainnet optimization: reduces per-challenge cost from 0.012 SOL to ~0 SOL.
+        Can only close challenges that are no longer Pending (Passed/Failed/Expired).
+
+        Args:
+            target_agent_pda: The challenged agent's PDA
+            nonce: The challenge nonce (must match create_challenge)
+
+        Returns:
+            Transaction signature
+        """
+        challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey(), nonce)
+
+        tx = await self.program.rpc["close_challenge"](
+            nonce,
+            ctx=Context(
+                accounts={
+                    "challenger": self.keypair.pubkey(),
+                    "agent": target_agent_pda,
+                    "challenge": challenge_pda,
+                },
+                signers=[self.keypair],
+            )
+        )
+
+        logger.info(f"Challenge closed, rent reclaimed: agent={target_agent_pda}, nonce={nonce}, tx={tx}")
+        return str(tx)
 
     async def get_pending_challenges_for_me(self) -> list[dict]:
         """

@@ -62,4 +62,7 @@ pub enum RegistryError {
 
     #[msg("Audit summary not found for this agent")]
     AuditSummaryNotFound,
+
+    #[msg("Challenge is still pending (must be resolved before closing)")]
+    ChallengeStillPending,
 }

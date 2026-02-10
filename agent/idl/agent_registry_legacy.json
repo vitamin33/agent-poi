@@ -3,6 +3,32 @@
   "name": "agent_registry",
   "instructions": [
     {
+      "name": "closeChallenge",
+      "accounts": [
+        {
+          "name": "challenger",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "agent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "challenge",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "createChallenge",
       "accounts": [
         {
@@ -1180,9 +1206,14 @@
       "code": 6019,
       "name": "AuditSummaryNotFound",
       "msg": "Audit summary not found for this agent"
+    },
+    {
+      "code": 6020,
+      "name": "ChallengeStillPending",
+      "msg": "Challenge is still pending (must be resolved before closing)"
     }
   ],
   "metadata": {
-    "address": "3uyQZnuT9BLQZnf7keeZkUPQa7Djgb14fgMZwEZNsiQ1"
+    "address": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38"
   }
 }

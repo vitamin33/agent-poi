@@ -1,88 +1,40 @@
-# Agent PoI - Local Multi-Agent Demo
-# Run 3 agents that discover and challenge each other via A2A HTTP
+# Agent PoI - Multi-Agent Gateway
+# Runs all 3 agents (Alpha/Beta/Gamma) in a single process on port 10000
 #
 # Usage:
 #   1. Generate wallets: ./scripts/generate-agent-wallets.sh
-#   2. Start agents: docker compose -f docker-compose.multi-agent.yml up --build
-#   3. Watch A2A interactions: curl http://localhost:8001/a2a/interactions
-#   4. Check peers: curl http://localhost:8001/peers
+#   2. Start gateway: docker compose -f docker-compose.multi-agent.yml up --build -d
+#   3. Watch A2A interactions: curl http://localhost:10000/alpha/a2a/interactions
+#   4. Check network: curl http://localhost:10000/network
+#   5. Run certifications: curl -X POST http://localhost:10000/alpha/certify
 
 services:
-  agent-alpha:
+  agent-gateway:
     build:
       context: ./agent
       dockerfile: Dockerfile
-    container_name: poi-alpha
+    container_name: poi-multi-agent
     ports:
-      - "8001:8000"
+      - "10000:10000"
     environment:
-      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - MULTI_AGENT=true
+      - PORT=10000
+      # SOLANA_RPC_URL from .env (QuickNode devnet)
       - PROGRAM_ID=EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
-      - AGENT_NAME=PoI-Alpha
-      - AGENT_CAPABILITIES=defi-analysis,yield-farming,amm-math,cross-agent-discovery
-      - AGENT_PERSONALITY=defi
-      - AGENT_PUBLIC_URL=http://agent-alpha:8000
-      - AGENT_PEERS=http://agent-beta:8000,http://agent-gamma:8000
-      - WALLET_PATH=/app/wallets/alpha.json
+      - LLM_JUDGE_ENABLED=true
+      - LLM_JUDGE_PROVIDER=anthropic
+      - LLM_JUDGE_MODEL=claude-haiku-4-5-20251001
+    env_file:
+      - ./agent/.env
     volumes:
       - ./agent/wallets:/app/wallets:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:10000/health')"]
       interval: 30s
       timeout: 10s
-      start_period: 15s
-    networks:
-      - poi-network
-
-  agent-beta:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: poi-beta
-    ports:
-      - "8002:8000"
-    environment:
-      - SOLANA_RPC_URL=https://api.devnet.solana.com
-      - PROGRAM_ID=EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
-      - AGENT_NAME=PoI-Beta
-      - AGENT_CAPABILITIES=security-audit,vulnerability-scan,threat-detection,cross-agent-discovery
-      - AGENT_PERSONALITY=security
-      - AGENT_PUBLIC_URL=http://agent-beta:8000
-      - AGENT_PEERS=http://agent-alpha:8000,http://agent-gamma:8000
-      - WALLET_PATH=/app/wallets/beta.json
-    volumes:
-      - ./agent/wallets:/app/wallets:ro
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      start_period: 15s
-    networks:
-      - poi-network
-
-  agent-gamma:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: poi-gamma
-    ports:
-      - "8003:8000"
-    environment:
-      - SOLANA_RPC_URL=https://api.devnet.solana.com
-      - PROGRAM_ID=EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
-      - AGENT_NAME=PoI-Gamma
-      - AGENT_CAPABILITIES=solana-dev,pda-analysis,anchor-expert,cross-agent-discovery
-      - AGENT_PERSONALITY=solana
-      - AGENT_PUBLIC_URL=http://agent-gamma:8000
-      - AGENT_PEERS=http://agent-alpha:8000,http://agent-beta:8000
-      - WALLET_PATH=/app/wallets/gamma.json
-    volumes:
-      - ./agent/wallets:/app/wallets:ro
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      start_period: 15s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
     networks:
       - poi-network
 

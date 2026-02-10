@@ -82,6 +82,13 @@ pub mod agent_registry {
         instructions::expire_challenge::handler(ctx, nonce)
     }
 
+    /// Close a resolved challenge and reclaim rent (~0.012 SOL per challenge)
+    /// Only the original challenger can close, only after challenge is resolved
+    /// Critical mainnet optimization: reduces per-challenge cost from 0.012 SOL to ~0 SOL
+    pub fn close_challenge(ctx: Context<CloseChallenge>, nonce: u64) -> Result<()> {
+        instructions::close_challenge::handler(ctx, nonce)
+    }
+
     // ============================================
     // SentinelAgent Security Layer Instructions
     // ============================================

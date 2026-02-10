@@ -1,213 +1,43 @@
 {
-  "accounts": [
-    {
-      "discriminator": [
-        241,
-        119,
-        69,
-        140,
-        233,
-        9,
-        112,
-        50
-      ],
-      "name": "AgentAccount"
-    },
-    {
-      "discriminator": [
-        113,
-        227,
-        157,
-        13,
-        137,
-        117,
-        153,
-        226
-      ],
-      "name": "AgentAuditSummary"
-    },
-    {
-      "discriminator": [
-        254,
-        88,
-        234,
-        107,
-        205,
-        16,
-        148,
-        113
-      ],
-      "name": "AuditEntry"
-    },
-    {
-      "discriminator": [
-        119,
-        250,
-        161,
-        121,
-        119,
-        81,
-        22,
-        208
-      ],
-      "name": "Challenge"
-    },
-    {
-      "discriminator": [
-        196,
-        251,
-        168,
-        77,
-        92,
-        19,
-        39,
-        50
-      ],
-      "name": "MerkleAuditRoot"
-    },
-    {
-      "discriminator": [
-        160,
-        86,
-        28,
-        106,
-        219,
-        22,
-        56,
-        190
-      ],
-      "name": "MerkleAuditSummary"
-    },
-    {
-      "discriminator": [
-        29,
-        34,
-        224,
-        195,
-        175,
-        183,
-        99,
-        97
-      ],
-      "name": "RegistryState"
-    }
-  ],
   "address": "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38",
-  "errors": [
-    {
-      "code": 6000,
-      "msg": "Name is too long (max 64 characters)",
-      "name": "NameTooLong"
-    },
-    {
-      "code": 6001,
-      "msg": "Model hash is invalid (must be sha256:...)",
-      "name": "InvalidModelHash"
-    },
-    {
-      "code": 6002,
-      "msg": "Capabilities string is too long (max 256 characters)",
-      "name": "CapabilitiesTooLong"
-    },
-    {
-      "code": 6003,
-      "msg": "Agent is already verified",
-      "name": "AlreadyVerified"
-    },
-    {
-      "code": 6004,
-      "msg": "Unauthorized: only owner can update agent",
-      "name": "Unauthorized"
-    },
-    {
-      "code": 6005,
-      "msg": "Reputation delta too large",
-      "name": "ReputationDeltaTooLarge"
-    },
-    {
-      "code": 6006,
-      "msg": "Agent not found",
-      "name": "AgentNotFound"
-    },
-    {
-      "code": 6007,
-      "msg": "Registry is full",
-      "name": "RegistryFull"
-    },
-    {
-      "code": 6008,
-      "msg": "Collection has already been initialized",
-      "name": "CollectionAlreadyInitialized"
-    },
-    {
-      "code": 6009,
-      "msg": "Collection must be initialized before registering agents",
-      "name": "CollectionNotInitialized"
-    },
-    {
-      "code": 6010,
-      "msg": "Question is too long (max 256 characters)",
-      "name": "QuestionTooLong"
-    },
-    {
-      "code": 6011,
-      "msg": "Expected hash must be 64 characters (SHA256 hex)",
-      "name": "InvalidExpectedHash"
-    },
-    {
-      "code": 6012,
-      "msg": "Response hash must be 64 characters (SHA256 hex)",
-      "name": "InvalidResponseHash"
-    },
-    {
-      "code": 6013,
-      "msg": "Challenge has expired",
-      "name": "ChallengeExpired"
-    },
-    {
-      "code": 6014,
-      "msg": "Challenge is not pending",
-      "name": "ChallengeNotPending"
-    },
-    {
-      "code": 6015,
-      "msg": "Challenge does not match the agent",
-      "name": "ChallengeMismatch"
-    },
-    {
-      "code": 6016,
-      "msg": "Challenge has not expired yet",
-      "name": "ChallengeNotExpired"
-    },
-    {
-      "code": 6017,
-      "msg": "Details hash must be 64 hex characters (SHA256)",
-      "name": "InvalidDetailsHash"
-    },
-    {
-      "code": 6018,
-      "msg": "Risk score must be 0-100",
-      "name": "InvalidRiskScore"
-    },
-    {
-      "code": 6019,
-      "msg": "Audit summary not found for this agent",
-      "name": "AuditSummaryNotFound"
-    }
-  ],
+  "metadata": {
+    "name": "agent_registry",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Agent Proof-of-Intelligence Registry for Solana"
+  },
   "instructions": [
     {
+      "name": "close_challenge",
+      "docs": [
+        "Close a resolved challenge and reclaim rent (~0.012 SOL per challenge)",
+        "Only the original challenger can close, only after challenge is resolved",
+        "Critical mainnet optimization: reduces per-challenge cost from 0.012 SOL to ~0 SOL"
+      ],
+      "discriminator": [
+        29,
+        156,
+        109,
+        17,
+        41,
+        99,
+        71,
+        236
+      ],
       "accounts": [
         {
           "name": "challenger",
-          "signer": true,
-          "writable": true
+          "docs": [
+            "The original challenger who funded the PDA (receives rent back)"
+          ],
+          "writable": true,
+          "signer": true
         },
         {
-          "docs": [
-            "The agent being challenged"
-          ],
           "name": "agent",
+          "docs": [
+            "The agent that was challenged (for PDA derivation)"
+          ],
           "pda": {
             "seeds": [
               {
@@ -221,23 +51,24 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
           }
         },
         {
-          "docs": [
-            "The challenge account (PDA derived from agent + challenger + timestamp)"
-          ],
           "name": "challenge",
+          "docs": [
+            "The challenge account to close (rent returned to challenger)"
+          ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -261,25 +92,26 @@
               {
                 "kind": "account",
                 "path": "challenger"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
               }
             ]
-          },
-          "writable": true
-        },
-        {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          }
         }
       ],
       "args": [
         {
-          "name": "question",
-          "type": "string"
-        },
-        {
-          "name": "expected_hash",
-          "type": "string"
+          "name": "nonce",
+          "type": "u64"
         }
+      ]
+    },
+    {
+      "name": "create_challenge",
+      "docs": [
+        "Create a new challenge for an agent (nonce enables multiple challenges per pair)"
       ],
       "discriminator": [
         170,
@@ -291,98 +123,17 @@
         173,
         239
       ],
-      "docs": [
-        "Create a new challenge for an agent"
-      ],
-      "name": "create_challenge"
-    },
-    {
       "accounts": [
         {
-          "name": "admin",
-          "signer": true,
-          "writable": true
+          "name": "challenger",
+          "writable": true,
+          "signer": true
         },
         {
-          "name": "registry",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          },
-          "writable": true
-        },
-        {
-          "name": "collection"
-        }
-      ],
-      "args": [],
-      "discriminator": [
-        156,
-        251,
-        92,
-        54,
-        233,
-        2,
-        16,
-        82
-      ],
-      "docs": [
-        "Set the NFT collection address for agent identities (admin only, one-time)",
-        "The collection itself is created off-chain using Metaplex SDK"
-      ],
-      "name": "create_collection"
-    },
-    {
-      "accounts": [
-        {
-          "docs": [
-            "Anyone can call this to expire a challenge"
-          ],
-          "name": "caller",
-          "signer": true,
-          "writable": true
-        },
-        {
-          "docs": [
-            "The registry (for validation)"
-          ],
-          "name": "registry",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "docs": [
-            "The agent that was challenged"
-          ],
           "name": "agent",
+          "docs": [
+            "The agent being challenged"
+          ],
           "pda": {
             "seeds": [
               {
@@ -396,24 +147,24 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
-          "docs": [
-            "The challenge to expire"
-          ],
           "name": "challenge",
+          "docs": [
+            "The challenge account (PDA derived from agent + challenger + nonce)"
+          ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -435,16 +186,92 @@
                 "path": "agent"
               },
               {
-                "account": "Challenge",
                 "kind": "account",
-                "path": "challenge.challenger"
+                "path": "challenger"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
               }
             ]
-          },
-          "writable": true
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [],
+      "args": [
+        {
+          "name": "question",
+          "type": "string"
+        },
+        {
+          "name": "expected_hash",
+          "type": "string"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_collection",
+      "docs": [
+        "Set the NFT collection address for agent identities (admin only, one-time)",
+        "The collection itself is created off-chain using Metaplex SDK"
+      ],
+      "discriminator": [
+        156,
+        251,
+        92,
+        54,
+        233,
+        2,
+        16,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collection"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "expire_challenge",
+      "docs": [
+        "Expire a challenge that was not responded to in time",
+        "Can be called by anyone - permissionless cleanup",
+        "Agent receives penalty for not responding"
+      ],
       "discriminator": [
         73,
         82,
@@ -455,20 +282,44 @@
         58,
         41
       ],
-      "docs": [
-        "Expire a challenge that was not responded to in time",
-        "Can be called by anyone - permissionless cleanup",
-        "Agent receives penalty for not responding"
-      ],
-      "name": "expire_challenge"
-    },
-    {
       "accounts": [
         {
+          "name": "caller",
           "docs": [
-            "The agent to query"
+            "Anyone can call this to expire a challenge"
           ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "docs": [
+            "The registry (for validation)"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "agent",
+          "docs": [
+            "The agent that was challenged"
+          ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -482,52 +333,69 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
           }
         },
         {
+          "name": "challenge",
           "docs": [
-            "The audit summary"
+            "The challenge to expire"
           ],
-          "name": "audit_summary",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
+                  99,
+                  104,
                   97,
-                  117,
-                  100,
-                  105,
-                  116,
-                  95,
-                  115,
-                  117,
-                  109,
-                  109,
-                  97,
-                  114,
-                  121
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
                 ]
               },
               {
                 "kind": "account",
                 "path": "agent"
+              },
+              {
+                "kind": "account",
+                "path": "challenge.challenger",
+                "account": "Challenge"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
               }
             ]
           }
         }
       ],
-      "args": [],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "get_audit_status",
+      "docs": [
+        "Get audit status for an agent (view function)"
+      ],
       "discriminator": [
         150,
         239,
@@ -538,80 +406,12 @@
         78,
         162
       ],
-      "docs": [
-        "Get audit status for an agent (view function)"
-      ],
-      "name": "get_audit_status",
-      "returns": {
-        "defined": {
-          "name": "AuditStatusResponse"
-        }
-      }
-    },
-    {
       "accounts": [
         {
-          "name": "admin",
-          "signer": true,
-          "writable": true
-        },
-        {
-          "name": "registry",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          },
-          "writable": true
-        },
-        {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
-        }
-      ],
-      "args": [],
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
-      "docs": [
-        "Initialize the global registry state"
-      ],
-      "name": "initialize"
-    },
-    {
-      "accounts": [
-        {
-          "docs": [
-            "The actor triggering this audit (must be agent owner or admin)"
-          ],
-          "name": "actor",
-          "signer": true,
-          "writable": true
-        },
-        {
-          "docs": [
-            "The agent being audited"
-          ],
           "name": "agent",
+          "docs": [
+            "The agent to query"
+          ],
           "pda": {
             "seeds": [
               {
@@ -625,23 +425,23 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
           }
         },
         {
-          "docs": [
-            "The audit summary for this agent (created if first audit)"
-          ],
           "name": "audit_summary",
+          "docs": [
+            "The audit summary"
+          ],
           "pda": {
             "seeds": [
               {
@@ -667,14 +467,159 @@
                 "path": "agent"
               }
             ]
-          },
-          "writable": true
+          }
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "AuditStatusResponse"
+        }
+      }
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the global registry state"
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
         },
         {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "log_audit",
+      "docs": [
+        "Log an audit entry for an agent (SentinelAgent)",
+        "Creates immutable on-chain audit trail for compliance"
+      ],
+      "discriminator": [
+        181,
+        193,
+        139,
+        68,
+        236,
+        176,
+        33,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "actor",
+          "docs": [
+            "The actor triggering this audit (must be agent owner or admin)"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "agent",
+          "docs": [
+            "The agent being audited"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.owner",
+                "account": "AgentAccount"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "audit_summary",
+          "docs": [
+            "The audit summary for this agent (created if first audit)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  100,
+                  105,
+                  116,
+                  95,
+                  115,
+                  117,
+                  109,
+                  109,
+                  97,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "audit_entry",
           "docs": [
             "The new audit entry"
           ],
-          "name": "audit_entry",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -692,17 +637,16 @@
                 "path": "agent"
               },
               {
-                "account": "AgentAuditSummary",
                 "kind": "account",
-                "path": "audit_summary.total_entries"
+                "path": "audit_summary.total_entries",
+                "account": "AgentAuditSummary"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -722,32 +666,33 @@
           "name": "details_hash",
           "type": "string"
         }
-      ],
-      "discriminator": [
-        181,
-        193,
-        139,
-        68,
-        236,
-        176,
-        33,
-        145
-      ],
-      "docs": [
-        "Log an audit entry for an agent (SentinelAgent)",
-        "Creates immutable on-chain audit trail for compliance"
-      ],
-      "name": "log_audit"
+      ]
     },
     {
+      "name": "register_agent",
+      "docs": [
+        "Register a new AI agent with identity NFT reference",
+        "The NFT should be created off-chain first using Metaplex SDK"
+      ],
+      "discriminator": [
+        135,
+        157,
+        66,
+        195,
+        2,
+        113,
+        175,
+        30
+      ],
       "accounts": [
         {
           "name": "owner",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "registry",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -764,11 +709,11 @@
                 ]
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
           "name": "agent",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -786,15 +731,15 @@
                 "path": "owner"
               },
               {
-                "account": "RegistryState",
                 "kind": "account",
-                "path": "registry.total_agents"
+                "path": "registry.total_agents",
+                "account": "RegistryState"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
+          "name": "nft_mint",
           "docs": [
             "",
             "HACKATHON LIMITATION: This account is unchecked for demo purposes.",
@@ -807,12 +752,11 @@
             "4. Add NFT metadata validation (name, symbol, URI structure)",
             "",
             "Without these checks, any arbitrary pubkey can be passed as the NFT mint."
-          ],
-          "name": "nft_mint"
+          ]
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -828,38 +772,39 @@
           "name": "capabilities",
           "type": "string"
         }
-      ],
-      "discriminator": [
-        135,
-        157,
-        66,
-        195,
-        2,
-        113,
-        175,
-        30
-      ],
-      "docs": [
-        "Register a new AI agent with identity NFT reference",
-        "The NFT should be created off-chain first using Metaplex SDK"
-      ],
-      "name": "register_agent"
+      ]
     },
     {
+      "name": "store_merkle_audit",
+      "docs": [
+        "Store a Merkle root of batched audit entries",
+        "More gas-efficient: 1 tx for N entries instead of N txs",
+        "Off-chain logs can be verified against the on-chain root"
+      ],
+      "discriminator": [
+        208,
+        60,
+        113,
+        180,
+        106,
+        123,
+        53,
+        23
+      ],
       "accounts": [
         {
+          "name": "owner",
           "docs": [
             "The agent owner (must own the agent being audited)"
           ],
-          "name": "owner",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
+          "name": "agent",
           "docs": [
             "The agent being audited"
           ],
-          "name": "agent",
           "pda": {
             "seeds": [
               {
@@ -873,23 +818,24 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
           }
         },
         {
+          "name": "audit_summary",
           "docs": [
             "The Merkle audit summary for this agent (created if first batch)"
           ],
-          "name": "audit_summary",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -916,14 +862,14 @@
                 "path": "agent"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
+          "name": "audit_root",
           "docs": [
             "The new Merkle audit root entry"
           ],
-          "name": "audit_root",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -948,17 +894,16 @@
                 "path": "agent"
               },
               {
-                "account": "MerkleAuditSummary",
                 "kind": "account",
-                "path": "audit_summary.total_batches"
+                "path": "audit_summary.total_batches",
+                "account": "MerkleAuditSummary"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -975,39 +920,37 @@
           "name": "entries_count",
           "type": "u32"
         }
-      ],
-      "discriminator": [
-        208,
-        60,
-        113,
-        180,
-        106,
-        123,
-        53,
-        23
-      ],
-      "docs": [
-        "Store a Merkle root of batched audit entries",
-        "More gas-efficient: 1 tx for N entries instead of N txs",
-        "Off-chain logs can be verified against the on-chain root"
-      ],
-      "name": "store_merkle_audit"
+      ]
     },
     {
+      "name": "submit_response",
+      "docs": [
+        "Submit a response to a challenge (verifies and updates reputation)"
+      ],
+      "discriminator": [
+        85,
+        190,
+        208,
+        119,
+        243,
+        52,
+        133,
+        90
+      ],
       "accounts": [
         {
+          "name": "owner",
           "docs": [
             "Agent owner submitting the response"
           ],
-          "name": "owner",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
+          "name": "registry",
           "docs": [
             "The registry (for validation)"
           ],
-          "name": "registry",
           "pda": {
             "seeds": [
               {
@@ -1027,10 +970,11 @@
           }
         },
         {
+          "name": "agent",
           "docs": [
             "The agent account (must be owned by signer)"
           ],
-          "name": "agent",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1048,19 +992,19 @@
                 "path": "owner"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
+          "name": "challenge",
           "docs": [
             "The challenge to respond to"
           ],
-          "name": "challenge",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1082,45 +1026,53 @@
                 "path": "agent"
               },
               {
-                "account": "Challenge",
                 "kind": "account",
-                "path": "challenge.challenger"
+                "path": "challenge.challenger",
+                "account": "Challenge"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
               }
             ]
-          },
-          "writable": true
+          }
         }
       ],
       "args": [
         {
           "name": "response_hash",
           "type": "string"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
         }
+      ]
+    },
+    {
+      "name": "update_agent",
+      "docs": [
+        "Update an agent's metadata"
       ],
       "discriminator": [
         85,
-        190,
-        208,
+        2,
+        178,
+        9,
         119,
-        243,
-        52,
-        133,
-        90
+        139,
+        102,
+        164
       ],
-      "docs": [
-        "Submit a response to a challenge (verifies and updates reputation)"
-      ],
-      "name": "submit_response"
-    },
-    {
       "accounts": [
         {
           "name": "owner",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "agent",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1138,13 +1090,12 @@
                 "path": "owner"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
-          },
-          "writable": true
+          }
         }
       ],
       "args": [
@@ -1160,94 +1111,12 @@
             "option": "string"
           }
         }
-      ],
-      "discriminator": [
-        85,
-        2,
-        178,
-        9,
-        119,
-        139,
-        102,
-        164
-      ],
-      "docs": [
-        "Update an agent's metadata"
-      ],
-      "name": "update_agent"
+      ]
     },
     {
-      "accounts": [
-        {
-          "docs": [
-            "Authority for reputation updates - SECURITY NOTICE",
-            "",
-            "HACKATHON LIMITATION: Currently only admin can update reputation.",
-            "",
-            "PRODUCTION REQUIREMENTS:",
-            "1. Add a separate \"authorized_verifiers\" PDA to store allowed callers",
-            "2. Allow challenge program PDAs to update reputation via CPI",
-            "3. Consider time-locked updates or multi-sig for large reputation changes",
-            "4. Implement rate limiting per agent to prevent reputation farming"
-          ],
-          "name": "authority",
-          "signer": true,
-          "writable": true
-        },
-        {
-          "name": "registry",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "agent",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  103,
-                  101,
-                  110,
-                  116
-                ]
-              },
-              {
-                "account": "AgentAccount",
-                "kind": "account",
-                "path": "agent.owner"
-              },
-              {
-                "account": "AgentAccount",
-                "kind": "account",
-                "path": "agent.agent_id"
-              }
-            ]
-          },
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "delta",
-          "type": "i32"
-        }
+      "name": "update_reputation",
+      "docs": [
+        "Update agent reputation (called by challenge program)"
       ],
       "discriminator": [
         194,
@@ -1259,17 +1128,22 @@
         49,
         178
       ],
-      "docs": [
-        "Update agent reputation (called by challenge program)"
-      ],
-      "name": "update_reputation"
-    },
-    {
       "accounts": [
         {
-          "name": "admin",
-          "signer": true,
-          "writable": true
+          "name": "authority",
+          "docs": [
+            "Authority for reputation updates - SECURITY NOTICE",
+            "",
+            "HACKATHON LIMITATION: Currently only admin can update reputation.",
+            "",
+            "PRODUCTION REQUIREMENTS:",
+            "1. Add a separate \"authorized_verifiers\" PDA to store allowed callers",
+            "2. Allow challenge program PDAs to update reputation via CPI",
+            "3. Consider time-locked updates or multi-sig for large reputation changes",
+            "4. Implement rate limiting per agent to prevent reputation farming"
+          ],
+          "writable": true,
+          "signer": true
         },
         {
           "name": "registry",
@@ -1293,6 +1167,7 @@
         },
         {
           "name": "agent",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1306,21 +1181,31 @@
                 ]
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.owner"
+                "path": "agent.owner",
+                "account": "AgentAccount"
               },
               {
-                "account": "AgentAccount",
                 "kind": "account",
-                "path": "agent.agent_id"
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
               }
             ]
-          },
-          "writable": true
+          }
         }
       ],
-      "args": [],
+      "args": [
+        {
+          "name": "delta",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "verify_agent",
+      "docs": [
+        "Verify an agent (admin only)"
+      ],
       "discriminator": [
         206,
         212,
@@ -1331,25 +1216,271 @@
         100,
         66
       ],
-      "docs": [
-        "Verify an agent (admin only)"
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.owner",
+                "account": "AgentAccount"
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentAccount"
+              }
+            ]
+          }
+        }
       ],
-      "name": "verify_agent"
+      "args": []
     }
   ],
-  "metadata": {
-    "description": "Agent Proof-of-Intelligence Registry for Solana",
-    "name": "agent_registry",
-    "spec": "0.1.0",
-    "version": "0.1.0"
-  },
+  "accounts": [
+    {
+      "name": "AgentAccount",
+      "discriminator": [
+        241,
+        119,
+        69,
+        140,
+        233,
+        9,
+        112,
+        50
+      ]
+    },
+    {
+      "name": "AgentAuditSummary",
+      "discriminator": [
+        113,
+        227,
+        157,
+        13,
+        137,
+        117,
+        153,
+        226
+      ]
+    },
+    {
+      "name": "AuditEntry",
+      "discriminator": [
+        254,
+        88,
+        234,
+        107,
+        205,
+        16,
+        148,
+        113
+      ]
+    },
+    {
+      "name": "Challenge",
+      "discriminator": [
+        119,
+        250,
+        161,
+        121,
+        119,
+        81,
+        22,
+        208
+      ]
+    },
+    {
+      "name": "MerkleAuditRoot",
+      "discriminator": [
+        196,
+        251,
+        168,
+        77,
+        92,
+        19,
+        39,
+        50
+      ]
+    },
+    {
+      "name": "MerkleAuditSummary",
+      "discriminator": [
+        160,
+        86,
+        28,
+        106,
+        219,
+        22,
+        56,
+        190
+      ]
+    },
+    {
+      "name": "RegistryState",
+      "discriminator": [
+        29,
+        34,
+        224,
+        195,
+        175,
+        183,
+        99,
+        97
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NameTooLong",
+      "msg": "Name is too long (max 64 characters)"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidModelHash",
+      "msg": "Model hash is invalid (must be sha256:...)"
+    },
+    {
+      "code": 6002,
+      "name": "CapabilitiesTooLong",
+      "msg": "Capabilities string is too long (max 256 characters)"
+    },
+    {
+      "code": 6003,
+      "name": "AlreadyVerified",
+      "msg": "Agent is already verified"
+    },
+    {
+      "code": 6004,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: only owner can update agent"
+    },
+    {
+      "code": 6005,
+      "name": "ReputationDeltaTooLarge",
+      "msg": "Reputation delta too large"
+    },
+    {
+      "code": 6006,
+      "name": "AgentNotFound",
+      "msg": "Agent not found"
+    },
+    {
+      "code": 6007,
+      "name": "RegistryFull",
+      "msg": "Registry is full"
+    },
+    {
+      "code": 6008,
+      "name": "CollectionAlreadyInitialized",
+      "msg": "Collection has already been initialized"
+    },
+    {
+      "code": 6009,
+      "name": "CollectionNotInitialized",
+      "msg": "Collection must be initialized before registering agents"
+    },
+    {
+      "code": 6010,
+      "name": "QuestionTooLong",
+      "msg": "Question is too long (max 256 characters)"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidExpectedHash",
+      "msg": "Expected hash must be 64 characters (SHA256 hex)"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidResponseHash",
+      "msg": "Response hash must be 64 characters (SHA256 hex)"
+    },
+    {
+      "code": 6013,
+      "name": "ChallengeExpired",
+      "msg": "Challenge has expired"
+    },
+    {
+      "code": 6014,
+      "name": "ChallengeNotPending",
+      "msg": "Challenge is not pending"
+    },
+    {
+      "code": 6015,
+      "name": "ChallengeMismatch",
+      "msg": "Challenge does not match the agent"
+    },
+    {
+      "code": 6016,
+      "name": "ChallengeNotExpired",
+      "msg": "Challenge has not expired yet"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidDetailsHash",
+      "msg": "Details hash must be 64 hex characters (SHA256)"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidRiskScore",
+      "msg": "Risk score must be 0-100"
+    },
+    {
+      "code": 6019,
+      "name": "AuditSummaryNotFound",
+      "msg": "Audit summary not found for this agent"
+    },
+    {
+      "code": 6020,
+      "name": "ChallengeStillPending",
+      "msg": "Challenge is still pending (must be resolved before closing)"
+    }
+  ],
   "types": [
     {
+      "name": "ActionType",
       "docs": [
         "Action types for the audit trail",
         "Follows A2A protocol patterns for agent activity classification"
       ],
-      "name": "ActionType",
       "type": {
         "kind": "enum",
         "variants": [
@@ -1387,202 +1518,203 @@
       }
     },
     {
+      "name": "AgentAccount",
       "docs": [
         "Agent account - represents a registered AI agent"
       ],
-      "name": "AgentAccount",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent_id",
             "docs": [
               "Unique agent ID (auto-incremented)"
             ],
-            "name": "agent_id",
             "type": "u64"
           },
           {
+            "name": "owner",
             "docs": [
               "Owner wallet pubkey"
             ],
-            "name": "owner",
             "type": "pubkey"
           },
           {
+            "name": "name",
             "docs": [
               "Agent name (max 64 chars)"
             ],
-            "name": "name",
             "type": "string"
           },
           {
+            "name": "model_hash",
             "docs": [
               "SHA256 hash of the model file (e.g., \"sha256:abc123...\")"
             ],
-            "name": "model_hash",
             "type": "string"
           },
           {
+            "name": "capabilities",
             "docs": [
               "Comma-separated list of capabilities (e.g., \"analysis,coding,trading\")"
             ],
-            "name": "capabilities",
             "type": "string"
           },
           {
+            "name": "reputation_score",
             "docs": [
               "Reputation score (0-10000, representing 0.00-100.00%)"
             ],
-            "name": "reputation_score",
             "type": "u32"
           },
           {
+            "name": "challenges_passed",
             "docs": [
               "Number of challenges passed"
             ],
-            "name": "challenges_passed",
             "type": "u32"
           },
           {
+            "name": "challenges_failed",
             "docs": [
               "Number of challenges failed"
             ],
-            "name": "challenges_failed",
             "type": "u32"
           },
           {
+            "name": "verified",
             "docs": [
               "Whether the agent has been verified by admin"
             ],
-            "name": "verified",
             "type": "bool"
           },
           {
+            "name": "created_at",
             "docs": [
               "Unix timestamp when agent was created"
             ],
-            "name": "created_at",
             "type": "i64"
           },
           {
+            "name": "updated_at",
             "docs": [
               "Unix timestamp when agent was last updated"
             ],
-            "name": "updated_at",
             "type": "i64"
           },
           {
+            "name": "nft_mint",
             "docs": [
               "NFT asset pubkey (Metaplex Core identity NFT)"
             ],
-            "name": "nft_mint",
             "type": "pubkey"
           },
           {
+            "name": "bump",
             "docs": [
               "Bump seed for PDA derivation"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "AgentAuditSummary",
       "docs": [
         "Agent audit summary for quick lookups",
         "Aggregated stats for efficient querying"
       ],
-      "name": "AgentAuditSummary",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent",
             "docs": [
               "The agent this summary belongs to"
             ],
-            "name": "agent",
             "type": "pubkey"
           },
           {
+            "name": "total_entries",
             "docs": [
               "Total number of audit entries"
             ],
-            "name": "total_entries",
             "type": "u64"
           },
           {
+            "name": "security_alerts",
             "docs": [
               "Total security alerts triggered"
             ],
-            "name": "security_alerts",
             "type": "u32"
           },
           {
+            "name": "avg_risk_score",
             "docs": [
               "Average risk score (0-100)"
             ],
-            "name": "avg_risk_score",
             "type": "u8"
           },
           {
+            "name": "max_risk_score",
             "docs": [
               "Highest risk score recorded"
             ],
-            "name": "max_risk_score",
             "type": "u8"
           },
           {
+            "name": "last_audit_at",
             "docs": [
               "Last audit timestamp"
             ],
-            "name": "last_audit_at",
             "type": "i64"
           },
           {
+            "name": "safe_streak",
             "docs": [
               "Consecutive low-risk actions (for trust building)"
             ],
-            "name": "safe_streak",
             "type": "u32"
           },
           {
+            "name": "bump",
             "docs": [
               "PDA bump seed"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "AuditEntry",
       "docs": [
         "Audit entry for the SentinelAgent security layer",
         "Provides immutable on-chain audit trail for compliance (EU AI Act)"
       ],
-      "name": "AuditEntry",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent",
             "docs": [
               "The agent this audit entry belongs to"
             ],
-            "name": "agent",
             "type": "pubkey"
           },
           {
+            "name": "actor",
             "docs": [
               "The wallet that triggered this action"
             ],
-            "name": "actor",
             "type": "pubkey"
           },
           {
+            "name": "action_type",
             "docs": [
               "Type of action performed"
             ],
-            "name": "action_type",
             "type": {
               "defined": {
                 "name": "ActionType"
@@ -1590,17 +1722,17 @@
             }
           },
           {
+            "name": "risk_score",
             "docs": [
               "Risk level assessment (0-100)"
             ],
-            "name": "risk_score",
             "type": "u8"
           },
           {
+            "name": "risk_level",
             "docs": [
               "Risk classification"
             ],
-            "name": "risk_level",
             "type": {
               "defined": {
                 "name": "RiskLevel"
@@ -1608,43 +1740,43 @@
             }
           },
           {
+            "name": "timestamp",
             "docs": [
               "Unix timestamp when action occurred"
             ],
-            "name": "timestamp",
             "type": "i64"
           },
           {
+            "name": "details_hash",
             "docs": [
               "SHA256 hash of detailed action data (stored off-chain)"
             ],
-            "name": "details_hash",
             "type": "string"
           },
           {
+            "name": "audit_index",
             "docs": [
               "Sequential audit index for this agent"
             ],
-            "name": "audit_index",
             "type": "u64"
           },
           {
+            "name": "bump",
             "docs": [
               "PDA bump seed"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "AuditStatusResponse",
       "docs": [
         "Response struct for audit status queries"
       ],
-      "name": "AuditStatusResponse",
       "type": {
+        "kind": "struct",
         "fields": [
           {
             "name": "total_entries",
@@ -1674,50 +1806,50 @@
             "name": "last_audit_at",
             "type": "i64"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "Challenge",
       "docs": [
         "Challenge account - represents a verification challenge for an agent"
       ],
-      "name": "Challenge",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent",
             "docs": [
               "The agent being challenged"
             ],
-            "name": "agent",
             "type": "pubkey"
           },
           {
+            "name": "challenger",
             "docs": [
               "Who created the challenge"
             ],
-            "name": "challenger",
             "type": "pubkey"
           },
           {
+            "name": "question",
             "docs": [
               "The challenge question/prompt"
             ],
-            "name": "question",
             "type": "string"
           },
           {
+            "name": "expected_hash",
             "docs": [
               "SHA256 hash of the expected answer (for verification)"
             ],
-            "name": "expected_hash",
             "type": "string"
           },
           {
+            "name": "status",
             "docs": [
               "Current status of the challenge"
             ],
-            "name": "status",
             "type": {
               "defined": {
                 "name": "ChallengeStatus"
@@ -1725,42 +1857,48 @@
             }
           },
           {
+            "name": "created_at",
             "docs": [
               "Unix timestamp when challenge was created"
             ],
-            "name": "created_at",
             "type": "i64"
           },
           {
+            "name": "expires_at",
             "docs": [
               "Unix timestamp when challenge expires"
             ],
-            "name": "expires_at",
             "type": "i64"
           },
           {
+            "name": "responded_at",
             "docs": [
               "Unix timestamp when agent responded (if any)"
             ],
-            "name": "responded_at",
             "type": "i64"
           },
           {
+            "name": "nonce",
+            "docs": [
+              "Nonce for unique PDA derivation (allows multiple challenges per agent-challenger pair)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
             "docs": [
               "Bump seed for PDA derivation"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "ChallengeStatus",
       "docs": [
         "Challenge status enum"
       ],
-      "name": "ChallengeStatus",
       "type": {
         "kind": "enum",
         "variants": [
@@ -1780,6 +1918,7 @@
       }
     },
     {
+      "name": "MerkleAuditRoot",
       "docs": [
         "Merkle audit root - stores a batch of audit entries as a single root hash",
         "This is more gas-efficient than storing each entry individually",
@@ -1787,21 +1926,21 @@
         "Pattern: Collect N entries off-chain → compute Merkle root → store root on-chain",
         "Verification: Anyone can verify an entry was included using Merkle proof"
       ],
-      "name": "MerkleAuditRoot",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent",
             "docs": [
               "The agent this audit batch belongs to"
             ],
-            "name": "agent",
             "type": "pubkey"
           },
           {
+            "name": "merkle_root",
             "docs": [
               "Merkle root of the batch (32 bytes = SHA256)"
             ],
-            "name": "merkle_root",
             "type": {
               "array": [
                 "u8",
@@ -1810,135 +1949,134 @@
             }
           },
           {
+            "name": "entries_count",
             "docs": [
               "Number of entries in this batch"
             ],
-            "name": "entries_count",
             "type": "u32"
           },
           {
+            "name": "timestamp",
             "docs": [
               "Unix timestamp when batch was committed"
             ],
-            "name": "timestamp",
             "type": "i64"
           },
           {
+            "name": "batch_index",
             "docs": [
               "Sequential batch index for this agent"
             ],
-            "name": "batch_index",
             "type": "u64"
           },
           {
+            "name": "bump",
             "docs": [
               "PDA bump seed"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "MerkleAuditSummary",
       "docs": [
         "Lightweight summary tracking total batches per agent",
         "Updated each time a new Merkle root is stored"
       ],
-      "name": "MerkleAuditSummary",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "agent",
             "docs": [
               "The agent this summary belongs to"
             ],
-            "name": "agent",
             "type": "pubkey"
           },
           {
+            "name": "total_batches",
             "docs": [
               "Total number of batches stored"
             ],
-            "name": "total_batches",
             "type": "u64"
           },
           {
+            "name": "total_entries",
             "docs": [
               "Total number of individual entries across all batches"
             ],
-            "name": "total_entries",
             "type": "u64"
           },
           {
+            "name": "last_batch_at",
             "docs": [
               "Timestamp of last batch"
             ],
-            "name": "last_batch_at",
             "type": "i64"
           },
           {
+            "name": "bump",
             "docs": [
               "PDA bump seed"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "RegistryState",
       "docs": [
         "Global registry state - tracks total agents and admin"
       ],
-      "name": "RegistryState",
       "type": {
+        "kind": "struct",
         "fields": [
           {
+            "name": "admin",
             "docs": [
               "Admin pubkey who can verify agents"
             ],
-            "name": "admin",
             "type": "pubkey"
           },
           {
+            "name": "total_agents",
             "docs": [
               "Total number of registered agents"
             ],
-            "name": "total_agents",
             "type": "u64"
           },
           {
+            "name": "collection",
             "docs": [
               "Metaplex Core collection address for agent identity NFTs"
             ],
-            "name": "collection",
             "type": "pubkey"
           },
           {
+            "name": "collection_initialized",
             "docs": [
               "Whether the NFT collection has been initialized"
             ],
-            "name": "collection_initialized",
             "type": "bool"
           },
           {
+            "name": "bump",
             "docs": [
               "Bump seed for PDA"
             ],
-            "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     },
     {
+      "name": "RiskLevel",
       "docs": [
         "Risk level classification following security best practices"
       ],
-      "name": "RiskLevel",
       "type": {
         "kind": "enum",
         "variants": [

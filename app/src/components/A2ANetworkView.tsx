@@ -542,7 +542,7 @@ function InteractionRow({
 /* ------------------------------------------------------------------ */
 
 export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
-  const baseUrl = agentUrl || process.env.NEXT_PUBLIC_AGENT_API_URL || "http://localhost:8001";
+  const baseUrl = agentUrl || process.env.NEXT_PUBLIC_AGENT_API_URL || "http://localhost:10000";
 
   const [peersData, setPeersData] = useState<PeersResponse | null>(null);
   const [interactionsData, setInteractionsData] = useState<InteractionsResponse | null>(null);
@@ -926,7 +926,7 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
                     <p className="text-xs text-[var(--text-muted)] mt-1">Agents challenge each other every ~2 minutes</p>
                   </div>
                 ) : (
-                  [...recentInteractions].reverse().map((interaction, idx) => (
+                  recentInteractions.map((interaction, idx) => (
                     <InteractionRow
                       key={interaction.timestamp + idx}
                       interaction={interaction}

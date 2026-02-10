@@ -495,6 +495,33 @@ async def _cross_agent_challenges(state: AgentState):
                                         )
                                     except Exception:
                                         pass
+
+                                    # Close challenge PDA to reclaim rent (~0.012 SOL)
+                                    # Critical mainnet optimization: 1000x cost reduction
+                                    # Wait for submit TX to confirm before closing
+                                    await asyncio.sleep(3)
+                                    close_attempts = 0
+                                    for _close_try in range(3):
+                                        try:
+                                            close_tx = await state.client.close_challenge(
+                                                target_agent_pda=target_pda,
+                                                nonce=challenge_nonce,
+                                            )
+                                            interaction["steps"].append({
+                                                "step": "close_challenge", "status": "rent_reclaimed",
+                                                "tx": close_tx,
+                                            })
+                                            _log_activity(state, "a2a_challenge", "rent_reclaimed", {
+                                                "tx": close_tx[:16] + "..." if close_tx else "",
+                                                "nonce": challenge_nonce,
+                                            })
+                                            break
+                                        except Exception as e:
+                                            close_attempts += 1
+                                            if close_attempts < 3:
+                                                await asyncio.sleep(2)
+                                            else:
+                                                logger.warning(f"[{state.slug}] Could not close challenge PDA after 3 tries: {repr(e)}")
                                 else:
                                     interaction["steps"].append({
                                         "step": "on_chain_submit", "status": "failed",
@@ -911,7 +938,8 @@ def create_agent_app(
                 "new_reputation": state.agent_info["reputation_score"],
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"[{state.slug}] challenge/submit error: {repr(e)}")
+            raise HTTPException(status_code=500, detail=repr(e)[:200])
 
     @sub_app.get("/peers")
     async def get_peers():
@@ -1086,12 +1114,12 @@ def create_agent_app(
             try:
                 on_chain_tx = await state.client.log_audit(
                     agent_id=state.agent_info["agent_id"],
-                    action_type=4,
+                    action_type=9,  # Custom (certification audit)
                     context_risk=0,
                     details_hash=cert_hash,
                 )
             except Exception as e:
-                logger.warning(f"[{slug}] Failed to store certification on-chain: {e}")
+                logger.warning(f"[{state.slug}] Failed to store certification on-chain: {e}")
 
         cert_record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
