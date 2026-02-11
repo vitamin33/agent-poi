@@ -66,10 +66,81 @@ async function fetchAggregatedInteractions(): Promise<AgentInteractions> {
 }
 
 /**
- * GET /api/a2a?endpoint=peers|interactions|info|status|health|certifications&slug=alpha
+ * Fetch audit data from all agents and merge into a single response.
+ */
+async function fetchAggregatedAudit() {
+  const results = await Promise.allSettled(
+    AGENT_SLUGS.map(async (s) => {
+      const res = await fetch(`${AGENT_API_URL}/${s}/audit`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`${s}: ${res.status}`);
+      return res.json();
+    })
+  );
+
+  const fulfilled = results
+    .filter((r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  return {
+    agents: fulfilled,
+    total_entries: fulfilled.reduce((s, d) => {
+      const stats = d.audit_stats as Record<string, number> | undefined;
+      return s + (stats?.total_entries_logged || 0);
+    }, 0),
+    total_batches_flushed: fulfilled.reduce((s, d) => {
+      const stats = d.audit_stats as Record<string, number> | undefined;
+      return s + (stats?.total_batches_stored || 0);
+    }, 0),
+    total_on_chain_roots: fulfilled.reduce((s, d) => {
+      const v = d.verification as Record<string, number> | undefined;
+      return s + (v?.on_chain_roots || 0);
+    }, 0),
+  };
+}
+
+/**
+ * Fetch autonomous stats from all agents and merge into a single response.
+ */
+async function fetchAggregatedAutonomousStats() {
+  const results = await Promise.allSettled(
+    AGENT_SLUGS.map(async (s) => {
+      const res = await fetch(`${AGENT_API_URL}/${s}/autonomous-stats`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`${s}: ${res.status}`);
+      return res.json();
+    })
+  );
+
+  const fulfilled = results
+    .filter((r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  // Sum up key metrics across agents
+  const behaviors = fulfilled.map((d) => d.autonomous_behaviors as Record<string, number> || {});
+
+  return {
+    agents: fulfilled,
+    total_agents: fulfilled.length,
+    aggregate: {
+      self_evaluations: behaviors.reduce((s, b) => s + (b.self_evaluations_completed || 0), 0),
+      challenges_created: behaviors.reduce((s, b) => s + (b.challenges_created_for_others || 0), 0),
+      merkle_entries: behaviors.reduce((s, b) => s + (b.merkle_entries_logged || 0), 0),
+      merkle_batches: behaviors.reduce((s, b) => s + (b.merkle_batches_flushed || 0), 0),
+      total_activities: behaviors.reduce((s, b) => s + (b.total_activities_logged || 0), 0),
+    },
+  };
+}
+
+/**
+ * GET /api/a2a?endpoint=peers|interactions|info|status|health|certifications|audit|autonomous-stats&slug=alpha
  *
  * Proxies A2A requests to the Python agent API.
- * For `interactions` endpoint without slug, aggregates from all agents.
+ * For `interactions`, `audit`, `autonomous-stats` without slug, aggregates from all agents.
  * For other endpoints, uses the `slug` param (default: "alpha") to route
  * to the correct agent sub-app (e.g. /alpha/peers, /beta/certifications).
  */
@@ -85,6 +156,8 @@ export async function GET(request: NextRequest) {
     status: "/status",
     health: "/health",
     certifications: "/certifications",
+    audit: "/audit",
+    "autonomous-stats": "/autonomous-stats",
   };
 
   if (!endpoint || !validEndpoints[endpoint]) {
@@ -102,6 +175,18 @@ export async function GET(request: NextRequest) {
     // For interactions without a specific slug, aggregate from all agents
     if (endpoint === "interactions" && !slug) {
       const aggregated = await fetchAggregatedInteractions();
+      return NextResponse.json(aggregated);
+    }
+
+    // For audit without a specific slug, aggregate from all agents
+    if (endpoint === "audit" && !slug) {
+      const aggregated = await fetchAggregatedAudit();
+      return NextResponse.json(aggregated);
+    }
+
+    // For autonomous-stats without a specific slug, aggregate from all agents
+    if (endpoint === "autonomous-stats" && !slug) {
+      const aggregated = await fetchAggregatedAutonomousStats();
       return NextResponse.json(aggregated);
     }
 

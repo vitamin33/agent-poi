@@ -1016,6 +1016,8 @@ def create_agent_app(
 
     @sub_app.get("/peers")
     async def get_peers():
+        # Refresh peer discovery on every request (stale cache causes "Unknown" peers)
+        await _discover_peers(state)
         online = sum(1 for p in state.peer_registry.values() if p.get("status") == "online")
         return {
             "agent_name": name,

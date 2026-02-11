@@ -23,7 +23,7 @@
   ],
 
   "api": {
-    "base_url": "https://agent-poi.onrender.com",
+    "base_url": "https://assisterr-agent-hackathon.onrender.com",
     "version": "v1",
     "endpoints": {
       "status": {
@@ -140,6 +140,50 @@
           "breakdown": "object",
           "result_hash": "string"
         }
+      },
+      "audit": {
+        "method": "GET",
+        "path": "/{slug}/audit",
+        "description": "Get Merkle audit trail with on-chain proofs of all autonomous actions",
+        "response": {
+          "agent_name": "string",
+          "total_entries": "number",
+          "total_batches_flushed": "number",
+          "on_chain_roots": "number",
+          "pending_entries": "number",
+          "recent_batches": "array",
+          "verification": "object"
+        }
+      },
+      "autonomous_stats": {
+        "method": "GET",
+        "path": "/{slug}/autonomous-stats",
+        "description": "Unified autonomous behavior metrics across all background tasks",
+        "response": {
+          "agent_name": "string",
+          "uptime_hours": "number",
+          "autonomous_behaviors": "object",
+          "background_tasks": "object",
+          "proof_of_autonomy": "object"
+        }
+      },
+      "certifications": {
+        "method": "GET",
+        "path": "/{slug}/certifications",
+        "description": "Get cross-agent certification results from LLM-judged evaluations",
+        "response": {
+          "certifications": "array",
+          "total_certified": "number"
+        }
+      },
+      "certify": {
+        "method": "POST",
+        "path": "/certify",
+        "description": "Trigger cross-agent certification where each agent evaluates others",
+        "response": {
+          "certifications": "array",
+          "agents_certified": "number"
+        }
       }
     }
   },
@@ -169,6 +213,16 @@
       "description": "Admin verification of agent identity",
       "accounts": ["admin", "agent", "registry_state"],
       "args": []
+    },
+    "close_challenge": {
+      "description": "Close a completed challenge account and reclaim rent SOL",
+      "accounts": ["authority", "agent", "challenge", "system_program"],
+      "args": []
+    },
+    "store_merkle_audit": {
+      "description": "Store a Merkle root of batched agent actions on-chain for verifiable audit trail",
+      "accounts": ["authority", "agent", "merkle_audit", "system_program"],
+      "args": ["merkle_root", "entry_count", "start_timestamp", "end_timestamp"]
     },
     "log_audit": {
       "description": "Log an audit entry for SentinelAgent security monitoring",

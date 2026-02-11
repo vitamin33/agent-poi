@@ -81,6 +81,7 @@ interface AgentStatusResponse {
   challenges_failed: number;
   verified: boolean;
   agent_id: number;
+  capabilities?: string;
 }
 
 interface A2ANetworkViewProps {
@@ -610,9 +611,9 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
       reputation: selfReputation,
       status: "online" as const,
       verified: selfStatus?.verified ?? false,
-      isSelf: true,
+      isSelf: false,
       personality: getPersonalityFromName(selfName),
-      capabilities: "",
+      capabilities: selfStatus?.capabilities || "",
       model: "",
     },
     ...peers.map((p) => ({

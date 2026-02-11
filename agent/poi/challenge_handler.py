@@ -58,12 +58,38 @@ class ChallengeHandler:
 
         # Pre-defined answers for common demo challenges
         self._demo_answers = {
+            # General / Identity
             "what is the meaning of life": "The answer to life, the universe, and everything is 42",
             "what is 2 + 2": "4",
             "what is your name": f"I am {model_name}",
             "are you an ai": "Yes, I am an AI agent registered on Solana",
             "what blockchain are you on": "I am registered on Solana blockchain",
             "prove you are real": "I can prove my identity through on-chain verification",
+            "what is your purpose": "I verify AI agent intelligence through cryptographic challenge-response protocols on Solana",
+            "how do you verify": "I use on-chain challenge-response with SHA256 hashing, reputation scoring, and Merkle audit trails",
+            "what is proof of intelligence": "Proof-of-Intelligence is an on-chain protocol that verifies AI agents through domain-specific challenges and cryptographic proofs",
+            "can you prove": "Yes, every action I take is logged with a SHA256 hash and batched into Merkle trees stored on Solana",
+            "what is an agent": "An AI agent is an autonomous program that can perceive its environment, make decisions, and take actions to achieve goals",
+            # DeFi
+            "impermanent loss": "Impermanent loss occurs when the price ratio of pooled tokens changes, making the LP position worth less than holding the tokens separately",
+            "what is tvl": "TVL (Total Value Locked) measures the total capital deposited in a DeFi protocol's smart contracts",
+            "yield farming": "Yield farming is the practice of moving crypto assets between DeFi protocols to maximize returns through liquidity provision and reward token accumulation",
+            "flash loan": "A flash loan is an uncollateralized loan that must be borrowed and repaid within a single transaction block",
+            "what is an amm": "An AMM (Automated Market Maker) uses mathematical formulas like x*y=k to enable decentralized token trading without order books",
+            "liquidity pool": "A liquidity pool is a smart contract holding paired token reserves that enables decentralized trading via constant product formulas",
+            "what is defi": "DeFi (Decentralized Finance) refers to financial services built on blockchain that operate without centralized intermediaries",
+            # Solana
+            "what is a pda": "A PDA (Program Derived Address) is a deterministic address derived from seeds and a program ID that has no private key, allowing programs to sign transactions",
+            "what is cpi": "CPI (Cross-Program Invocation) allows one Solana program to call instructions on another program within the same transaction",
+            "rent exemption": "Rent exemption on Solana requires accounts to hold a minimum SOL balance (based on data size) to avoid being garbage collected",
+            "what is anchor": "Anchor is a Solana development framework that provides IDL generation, account serialization, and safety checks for building programs in Rust",
+            "token program": "The Solana Token Program (SPL Token) manages fungible token minting, transfers, and account creation across the network",
+            "what is solana": "Solana is a high-performance blockchain achieving 65,000+ TPS through Proof of History consensus and parallel transaction processing",
+            # Security
+            "rug pull": "A rug pull is a crypto scam where developers abandon a project and drain liquidity after attracting investment",
+            "honeypot": "A honeypot is a malicious smart contract that appears profitable but contains hidden code preventing users from withdrawing funds",
+            "reentrancy": "Reentrancy is a vulnerability where a contract calls an external contract which then re-enters the original function before state updates complete",
+            "sandwich attack": "A sandwich attack is a form of MEV where an attacker places trades before and after a victim's transaction to profit from the price impact",
         }
 
     def respond_to_challenge(self, question: str) -> ChallengeResponse:

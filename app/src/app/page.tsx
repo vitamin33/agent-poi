@@ -15,6 +15,7 @@ import { SecurityDashboard } from "@/components/SecurityDashboard";
 import { LiveEventsFeed } from "@/components/LiveEventsFeed";
 import { A2ANetworkView } from "@/components/A2ANetworkView";
 import { CertificationView } from "@/components/CertificationView";
+import { AuditTrailView } from "@/components/AuditTrailView";
 import { useSolanaEvents, SolanaEventType } from "@/hooks/useSolanaEvents";
 
 export default function Home() {
@@ -369,6 +370,11 @@ export default function Home() {
         {/* Intelligence Certification Leaderboard */}
         <div className="mb-10">
           <CertificationView />
+        </div>
+
+        {/* Verifiable Audit Trail */}
+        <div className="mb-10">
+          <AuditTrailView />
         </div>
 
         {/* Register Agent */}
