@@ -36,7 +36,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, generate_model_identifier_hash, SLMEvaluator, EvaluationDomain, LLMJudge, QuestionSelector
+from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, generate_model_identifier_hash, SLMEvaluator, EvaluationDomain, LLMJudge, QuestionSelector, AuditBatcher, ActionType
 from solana_client import AgentRegistryClient
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ from solana_client import AgentRegistryClient
 # ---------------------------------------------------------------------------
 AGENT_VERSION = "2.0.0-multi"
 CHALLENGE_POLL_INTERVAL = 30
-SELF_EVAL_INTERVAL = 300
+SELF_EVAL_INTERVAL = 900
 CROSS_AGENT_CHALLENGE_INTERVAL = 300
 
 # LLM Judge config (shared across agents)
@@ -160,6 +160,7 @@ class AgentState:
     startup_time: Optional[datetime] = None
     http_client: Optional[httpx.AsyncClient] = None
     tasks: list = field(default_factory=list)
+    audit_batcher: Optional[AuditBatcher] = None
     used_pda_pairs: set = field(default_factory=set)  # Track exhausted PDA slots
     _discovery_cache: list = field(default_factory=list)
     _discovery_cache_ts: float = 0.0
@@ -238,6 +239,11 @@ async def _self_evaluation(state: AgentState):
                 _log_activity(state, "self_evaluation", "completed", {
                     "domain": result.domain, "score": result.score, "passed": result.passed,
                 })
+                if state.audit_batcher:
+                    state.audit_batcher.log(ActionType.EVALUATION_COMPLETED, {
+                        "domain": result.domain, "score": result.score,
+                        "passed": result.passed, "hash": result.result_hash,
+                    })
                 await asyncio.sleep(5)
 
             await asyncio.sleep(SELF_EVAL_INTERVAL)
@@ -549,6 +555,16 @@ async def _cross_agent_challenges(state: AgentState):
             interaction["submit_tx"] = submit_tx
             interaction["judge_score"] = judge_result.score if judge_result else None
             state.a2a_interactions.append(interaction)
+
+            # Merkle audit: log cross-agent challenge
+            if state.audit_batcher:
+                state.audit_batcher.log(ActionType.CROSS_AGENT_CHALLENGE, {
+                    "target": peer["name"],
+                    "question_domain": selected_q.domain,
+                    "judge_score": judge_result.score if judge_result else None,
+                    "on_chain": on_chain_tx is not None,
+                    "tx": on_chain_tx[:16] if on_chain_tx else None,
+                })
             if len(state.a2a_interactions) > 100:
                 state.a2a_interactions.pop(0)
 
@@ -573,6 +589,32 @@ async def _cross_agent_challenges(state: AgentState):
             break
         except Exception as e:
             _log_activity(state, "a2a_challenges", "error", {"error": str(e)[:100]})
+            await asyncio.sleep(60)
+
+
+AUDIT_FLUSH_INTERVAL = 300  # 5 minutes
+
+
+async def _flush_audit(state: AgentState):
+    """Background: periodically flush Merkle audit batches to chain."""
+    _log_activity(state, "audit_flush", "started", {"interval": AUDIT_FLUSH_INTERVAL})
+    await asyncio.sleep(180)  # Wait 3 min for first flush (let entries accumulate)
+    while True:
+        try:
+            if state.audit_batcher:
+                batch = await state.audit_batcher.flush(force=True)
+                if batch:
+                    _log_activity(state, "audit_flush", "flushed", {
+                        "batch_index": batch["batch_index"],
+                        "entries": batch["entries_count"],
+                        "merkle_root": batch["merkle_root"][:16] + "...",
+                        "tx": batch.get("tx_signature", "")[:16] + "..." if batch.get("tx_signature") else "local_only",
+                    })
+            await asyncio.sleep(AUDIT_FLUSH_INTERVAL)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            _log_activity(state, "audit_flush", "error", {"error": str(e)[:100]})
             await asyncio.sleep(60)
 
 
@@ -714,21 +756,30 @@ def create_agent_app(
 
         logger.info(f"[{slug}] Starting agent: {name} (personality={personality})")
 
-        # Initialize LLM Judge FIRST (needed by challenge handler)
+        # Initialize LLM instances
+        # 1. Answer LLM: uses agent's OWN model for unique response generation
+        # 2. Judge LLM: uses Sonnet for FAIR scoring across all agents
         _api_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
-        state.llm_judge = LLMJudge(
+        answer_llm = LLMJudge(
             api_key=_api_key,
             model=state.model_name,
             enabled=LLM_JUDGE_ENABLED,
             provider=state.model_provider,
         )
-        judge_mode = f"{state.model_provider} ({state.model_name})" if state.llm_judge.is_llm_available else "fuzzy"
-        logger.info(f"[{slug}] LLM Judge: {judge_mode}")
+        state.llm_judge = LLMJudge(
+            api_key=_api_key,
+            model=LLM_JUDGE_MODEL,
+            enabled=LLM_JUDGE_ENABLED,
+            provider=LLM_JUDGE_PROVIDER,
+        )
+        answer_mode = f"{state.model_provider}/{state.model_name}" if answer_llm.is_llm_available else "fuzzy"
+        judge_mode = f"{LLM_JUDGE_PROVIDER}/{LLM_JUDGE_MODEL}" if state.llm_judge.is_llm_available else "fuzzy"
+        logger.info(f"[{slug}] Answer LLM: {answer_mode} | Judge LLM: {judge_mode}")
 
-        # Challenge handler with LLM and personality
+        # Challenge handler uses agent-specific model for answer generation
         state.challenge_handler = ChallengeHandler(
             model_name=name,
-            llm_judge=state.llm_judge,
+            llm_judge=answer_llm,
             personality=personality,
         )
 
@@ -748,10 +799,31 @@ def create_agent_app(
 
         _log_activity(state, "agent_startup", "initializing", {"version": AGENT_VERSION})
 
+        # Initialize Merkle Audit Batcher (verifiable on-chain proof of autonomy)
+        if state.client and state.agent_info and state.agent_info.get("agent_id", -1) >= 0:
+            try:
+                agent_pda_str = str(state.client._get_agent_pda(
+                    state.client.keypair.pubkey(), state.agent_info["agent_id"]
+                )[0])
+                state.audit_batcher = AuditBatcher(
+                    solana_client=state.client,
+                    agent_pda=agent_pda_str,
+                    batch_size=10,
+                    storage_path=Path(f"audit_logs/{slug}"),
+                )
+                state.audit_batcher.log(ActionType.AGENT_REGISTERED, {
+                    "name": name, "agent_id": state.agent_info["agent_id"],
+                    "personality": personality,
+                })
+                logger.info(f"[{slug}] Merkle Audit Batcher initialized (batch_size=10)")
+            except Exception as e:
+                logger.warning(f"[{slug}] Audit batcher init failed: {e}")
+
         # Background tasks
         state.tasks.append(asyncio.create_task(_poll_challenges(state)))
         state.tasks.append(asyncio.create_task(_self_evaluation(state)))
         state.tasks.append(asyncio.create_task(_cross_agent_challenges(state)))
+        state.tasks.append(asyncio.create_task(_flush_audit(state)))
 
         logger.info(f"[{slug}] Agent ready: {name} | peers={peers}")
         _log_activity(state, "agent_startup", "complete", {
@@ -815,11 +887,11 @@ def create_agent_app(
                 "self_evaluation": True,
                 "cross_agent_challenges": True,
                 "activity_logging": True,
-                "audit_trail": True,
+                "merkle_audit_trail": state.audit_batcher is not None,
                 "llm_judge": {
                     "enabled": state.llm_judge.is_llm_available if state.llm_judge else False,
-                    "provider": LLM_JUDGE_PROVIDER if (state.llm_judge and state.llm_judge.is_llm_available) else "fuzzy",
-                    "model": LLM_JUDGE_MODEL if (state.llm_judge and state.llm_judge.is_llm_available) else None,
+                    "answer_model": f"{state.model_provider}/{state.model_name}",
+                    "judge_model": f"{LLM_JUDGE_PROVIDER}/{LLM_JUDGE_MODEL}" if (state.llm_judge and state.llm_judge.is_llm_available) else "fuzzy",
                 },
                 "question_pool": state.question_selector.get_stats() if state.question_selector else None,
             },
@@ -836,7 +908,8 @@ def create_agent_app(
                 "total_a2a_interactions": len(state.a2a_interactions),
                 "endpoints": ["/status", "/health", "/activity", "/evaluations",
                               "/challenge", "/evaluate/{domain}", "/peers",
-                              "/a2a/interactions", "/a2a/info"],
+                              "/a2a/interactions", "/a2a/info", "/audit",
+                              "/autonomous-stats", "/certify", "/certifications"],
             },
         }
 
@@ -1142,6 +1215,16 @@ def create_agent_app(
             "level": overall_level,
         })
 
+        # Merkle audit: log certification
+        if state.audit_batcher:
+            state.audit_batcher.log(ActionType.EVALUATION_COMPLETED, {
+                "type": "certification",
+                "overall_score": round(avg_score, 2),
+                "level": overall_level,
+                "cert_hash": cert_hash[:16],
+                "on_chain_tx": on_chain_tx[:16] if on_chain_tx else None,
+            })
+
         return cert_record
 
     @sub_app.get("/certifications")
@@ -1155,6 +1238,75 @@ def create_agent_app(
             "total_certifications": len(state.certification_history),
             "latest_certification": latest,
             "certification_history": state.certification_history,
+        }
+
+    @sub_app.get("/audit")
+    async def get_audit():
+        """Get Merkle audit trail — cryptographic proof of autonomous activity."""
+        if not state.audit_batcher:
+            return {
+                "agent_name": name,
+                "status": "not_initialized",
+                "message": "Audit batcher not yet initialized",
+            }
+        stats = state.audit_batcher.get_stats()
+        recent_batches = state.audit_batcher.flushed_batches[-5:] if state.audit_batcher.flushed_batches else []
+        # Summarize batches (don't return full entry data)
+        batch_summaries = [{
+            "batch_index": b["batch_index"],
+            "merkle_root": b["merkle_root"],
+            "entries_count": b["entries_count"],
+            "timestamp": b["timestamp"],
+            "tx_signature": b.get("tx_signature"),
+            "on_chain": b.get("tx_signature") is not None,
+        } for b in recent_batches]
+        return {
+            "agent_name": name,
+            "audit_stats": stats,
+            "recent_batches": batch_summaries,
+            "pending_entries": [e.to_dict() for e in state.audit_batcher.pending_entries[-5:]],
+            "verification": {
+                "merkle_tree": True,
+                "sha256_hashes": True,
+                "on_chain_roots": stats["total_batches_stored"],
+                "verifiable": True,
+                "description": "Each autonomous action is SHA256-hashed, batched into a Merkle tree, and the root is stored on Solana. Any entry can be verified against its on-chain root.",
+            },
+        }
+
+    @sub_app.get("/autonomous-stats")
+    async def get_autonomous_stats():
+        """Unified autonomous behavior statistics — key endpoint for 'Most Agentic' judging."""
+        uptime = (datetime.now(timezone.utc) - state.startup_time).total_seconds() if state.startup_time else 0
+        audit_stats = state.audit_batcher.get_stats() if state.audit_batcher else {}
+        on_chain_challenges = sum(1 for i in state.a2a_interactions if i.get("on_chain_tx"))
+        return {
+            "agent_name": name,
+            "model": f"{state.model_provider}/{state.model_name}",
+            "uptime_hours": round(uptime / 3600, 2),
+            "autonomous_behaviors": {
+                "challenges_auto_responded": state.agent_info.get("challenges_passed", 0) + state.agent_info.get("challenges_failed", 0) if state.agent_info else 0,
+                "challenges_created_for_others": len(state.cross_agent_challenges),
+                "on_chain_challenges": on_chain_challenges,
+                "self_evaluations_completed": len(state.evaluation_history),
+                "certifications_completed": len(state.certification_history),
+                "merkle_batches_flushed": audit_stats.get("total_batches_stored", 0),
+                "merkle_entries_logged": audit_stats.get("total_entries_logged", 0),
+                "total_activities_logged": len(state.activity_log),
+            },
+            "background_tasks": {
+                "challenge_polling": {"status": "running", "interval": f"{CHALLENGE_POLL_INTERVAL}s"},
+                "self_evaluation": {"status": "running", "interval": f"{SELF_EVAL_INTERVAL}s"},
+                "cross_agent_challenges": {"status": "running", "interval": f"{CROSS_AGENT_CHALLENGE_INTERVAL}s"},
+                "audit_flushing": {"status": "running", "interval": f"{AUDIT_FLUSH_INTERVAL}s"},
+            },
+            "proof_of_autonomy": {
+                "total_activities_logged": len(state.activity_log),
+                "merkle_roots_on_chain": audit_stats.get("total_batches_stored", 0),
+                "verifiable_audit_trail": state.audit_batcher is not None,
+                "cryptographic_hashing": "SHA256",
+                "on_chain_verification": "Solana devnet",
+            },
         }
 
     return sub_app, state
