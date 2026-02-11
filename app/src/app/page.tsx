@@ -193,7 +193,7 @@ export default function Home() {
                     A2A Protocol Ready
                   </span>
                   <span className="px-4 py-2 rounded-lg bg-[rgba(59,130,246,0.1)] border border-[rgba(59,130,246,0.3)] text-[#3b82f6]">
-                    EU AI Act Compliant
+                    On-Chain Audit Trail
                   </span>
                   <span className="px-4 py-2 rounded-lg bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.3)] text-[#a855f7]">
                     NFT Identity

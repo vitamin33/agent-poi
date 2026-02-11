@@ -9,6 +9,7 @@ interface ActivityEntry {
   agentName: string;
   riskLevel: "none" | "low" | "medium" | "high" | "critical";
   details: string;
+  score?: number | null;
 }
 
 interface SecurityDashboardProps {
@@ -27,7 +28,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
     verifiedAgents: 0,
     avgReputation: 0,
     totalChallenges: 0,
-    securityAlerts: 0,
+    totalPassed: 0,
   });
 
   // Build on-chain activity entries (registrations, verifications, challenge counters)
@@ -110,8 +111,9 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
             timestamp: ts,
             action: passed ? "A2A Challenge Passed" : score !== null ? "A2A Challenge Failed" : "A2A Challenge",
             agentName: `${challenger} → ${target}`,
-            riskLevel: passed ? "none" as const : score !== null ? "low" as const : "none" as const,
+            riskLevel: passed ? "none" as const : score !== null ? "medium" as const : "none" as const,
             details: `${domainLabel}${scoreLabel}`,
+            score,
           };
         }
       );
@@ -130,12 +132,14 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
       0
     );
 
+    const totalPassed = agents.reduce((sum, a) => sum + a.challengesPassed, 0);
+
     setNetworkStats({
       totalAgents: agents.length,
       verifiedAgents: verifiedCount,
       avgReputation: avgRep,
       totalChallenges,
-      securityAlerts: agents.filter((a) => a.reputationScore < 3000).length,
+      totalPassed,
     });
 
     // Build combined feed: on-chain + live A2A events
@@ -163,22 +167,25 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
     return () => clearInterval(interval);
   }, [agents, buildOnChainFeed, fetchA2AEvents]);
 
-  const getRiskBadge = (level: ActivityEntry["riskLevel"]) => {
-    const styles: Record<ActivityEntry["riskLevel"], { bg: string; text: string; border: string }> = {
-      none: { bg: "rgba(16,185,129,0.1)", text: "#10b981", border: "rgba(16,185,129,0.3)" },
-      low: { bg: "rgba(59,130,246,0.1)", text: "#3b82f6", border: "rgba(59,130,246,0.3)" },
-      medium: { bg: "rgba(245,158,11,0.1)", text: "#f59e0b", border: "rgba(245,158,11,0.3)" },
-      high: { bg: "rgba(249,115,22,0.1)", text: "#f97316", border: "rgba(249,115,22,0.3)" },
-      critical: { bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)" },
+  const getStatusBadge = (entry: ActivityEntry) => {
+    // Map actions to meaningful labels instead of abstract risk levels
+    const actionBadges: Record<string, { label: string; bg: string; text: string; border: string }> = {
+      "A2A Challenge Passed": { label: `${entry.score ?? ""}`, bg: "rgba(16,185,129,0.1)", text: "#10b981", border: "rgba(16,185,129,0.3)" },
+      "A2A Challenge Failed": { label: `${entry.score ?? ""}`, bg: "rgba(239,68,68,0.1)", text: "#ef4444", border: "rgba(239,68,68,0.3)" },
+      "A2A Challenge": { label: "pending", bg: "rgba(59,130,246,0.1)", text: "#3b82f6", border: "rgba(59,130,246,0.3)" },
+      "Challenge Passed": { label: "on-chain", bg: "rgba(16,185,129,0.1)", text: "#10b981", border: "rgba(16,185,129,0.3)" },
+      "Challenge Failed": { label: "on-chain", bg: "rgba(245,158,11,0.1)", text: "#f59e0b", border: "rgba(245,158,11,0.3)" },
+      "Agent Registered": { label: "on-chain", bg: "rgba(168,85,247,0.1)", text: "#a855f7", border: "rgba(168,85,247,0.3)" },
+      "Agent Verified": { label: "verified", bg: "rgba(16,185,129,0.1)", text: "#10b981", border: "rgba(16,185,129,0.3)" },
     };
 
-    const style = styles[level];
+    const badge = actionBadges[entry.action] || { label: "event", bg: "rgba(100,100,100,0.1)", text: "#888", border: "rgba(100,100,100,0.3)" };
     return (
       <span
         className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider"
-        style={{ background: style.bg, color: style.text, border: `1px solid ${style.border}` }}
+        style={{ background: badge.bg, color: badge.text, border: `1px solid ${badge.border}` }}
       >
-        {level}
+        {badge.label}
       </span>
     );
   };
@@ -245,7 +252,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
                 SentinelAgent Security Monitor
               </h2>
               <p className="text-xs text-[var(--text-muted)]">
-                Real-time audit trail and compliance monitoring
+                On-chain activity feed with real-time agent monitoring
               </p>
             </div>
           </div>
@@ -263,7 +270,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
           { label: "Verified", value: networkStats.verifiedAgents, color: "#10b981" },
           { label: "On-Chain Rep", value: `${networkStats.avgReputation.toFixed(1)}%`, color: "#a855f7" },
           { label: "Challenges", value: networkStats.totalChallenges, color: "#3b82f6" },
-          { label: "Alerts", value: networkStats.securityAlerts, color: "#ef4444" },
+          { label: "Pass Rate", value: networkStats.totalChallenges > 0 ? `${Math.round(networkStats.totalPassed / networkStats.totalChallenges * 100)}%` : "—", color: "#10b981" },
         ].map((stat, i) => (
           <div key={i} className="bg-[var(--bg-elevated)] p-4">
             <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
@@ -311,7 +318,7 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  {getRiskBadge(entry.riskLevel)}
+                  {getStatusBadge(entry)}
                   <span className="text-xs text-[var(--text-muted)] min-w-[60px] text-right">
                     {formatTime(entry.timestamp)}
                   </span>
@@ -322,23 +329,22 @@ export function SecurityDashboard({ agents }: SecurityDashboardProps) {
         </div>
       </div>
 
-      {/* Compliance Notice */}
+      {/* Audit Infrastructure Notice */}
       <div className="m-6 mt-0 p-4 rounded-xl bg-[rgba(168,85,247,0.05)] border border-[rgba(168,85,247,0.2)]">
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-lg bg-[rgba(168,85,247,0.1)] flex items-center justify-center flex-shrink-0">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-[#a855f7]">
-              <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" strokeWidth="2"/>
             </svg>
           </div>
           <div>
             <h4 className="text-sm font-medium text-[#a855f7] mb-1">
-              EU AI Act Compliance Ready
+              On-Chain Audit Infrastructure
             </h4>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-              All agent actions are logged on-chain with immutable audit trails.
-              This infrastructure supports the transparency and accountability
-              requirements of the EU AI Act (Aug 2026 deadline).
+              Every agent action is SHA256-hashed, batched into Merkle trees, and committed to Solana.
+              This creates a tamper-proof, publicly verifiable record of all AI decisions &mdash;
+              the foundational layer for regulatory transparency (EU AI Act, Aug 2026).
             </p>
           </div>
         </div>

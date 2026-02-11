@@ -221,6 +221,10 @@ function parseAgentAccountData(rawData: Buffer): AgentData | null {
     // Skip 8-byte discriminator
     const data = rawData.slice(8);
 
+    // Minimum size: 8 (id) + 32 (owner) + 4 (nameLen) + 4 (modelHashLen) + 4 (capLen)
+    //   + 4+4+4 (u32 scores) + 1 (verified) + 8+8 (timestamps) + 32 (nftMint) + 1 (bump) = 114
+    if (data.length < 114) return null;
+
     // Parse agent account manually
     let offset = 0;
 
@@ -232,16 +236,19 @@ function parseAgentAccountData(rawData: Buffer): AgentData | null {
 
     // String fields: length (4 bytes) + data
     const nameLen = data.readUInt32LE(offset);
+    if (nameLen > 200 || offset + 4 + nameLen > data.length) return null;
     offset += 4;
     const name = data.slice(offset, offset + nameLen).toString("utf8");
     offset += nameLen;
 
     const modelHashLen = data.readUInt32LE(offset);
+    if (modelHashLen > 500 || offset + 4 + modelHashLen > data.length) return null;
     offset += 4;
     const modelHash = data.slice(offset, offset + modelHashLen).toString("utf8");
     offset += modelHashLen;
 
     const capabilitiesLen = data.readUInt32LE(offset);
+    if (capabilitiesLen > 500 || offset + 4 + capabilitiesLen > data.length) return null;
     offset += 4;
     const capabilities = data.slice(offset, offset + capabilitiesLen).toString("utf8");
     offset += capabilitiesLen;
