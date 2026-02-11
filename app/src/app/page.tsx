@@ -12,11 +12,9 @@ import {
 } from "@/lib/program";
 import { RegisterForm } from "@/components/RegisterForm";
 import { SecurityDashboard } from "@/components/SecurityDashboard";
-import { LiveEventsFeed } from "@/components/LiveEventsFeed";
 import { A2ANetworkView } from "@/components/A2ANetworkView";
 import { CertificationView } from "@/components/CertificationView";
 import { AuditTrailView } from "@/components/AuditTrailView";
-import { useSolanaEvents, SolanaEventType } from "@/hooks/useSolanaEvents";
 
 export default function Home() {
   const { connection } = useConnection();
@@ -54,39 +52,6 @@ export default function Home() {
       walletName: wallet.wallet?.adapter?.name || null,
     });
   }, [wallet.connected, wallet.connecting, wallet.publicKey, wallet.wallet]);
-
-  // WebSocket live events subscription
-  const {
-    events,
-    isConnected: wsConnected,
-    lastEventTime,
-    clearEvents,
-    simulateEvent,
-  } = useSolanaEvents(connection, { enabled: !!wallet.publicKey });
-
-  // Demo event simulation for hackathon judges
-  const handleSimulateEvent = useCallback(() => {
-    const demoEvents: Array<{ type: SolanaEventType; data: Record<string, unknown> }> = [
-      {
-        type: "agent_registered",
-        data: { agentName: "DemoAgent-" + Math.floor(Math.random() * 1000), agentId: Math.floor(Math.random() * 100), newReputation: 5000 },
-      },
-      {
-        type: "challenge_responded",
-        data: { agentName: "SolanaBot", oldReputation: 5000, newReputation: 5100, status: "passed" },
-      },
-      {
-        type: "reputation_changed",
-        data: { agentName: "TradingAgent", oldReputation: 4800, newReputation: 4900 },
-      },
-      {
-        type: "challenge_created",
-        data: { agentName: "SecurityGuard", challengeQuestion: "What is your model hash?" },
-      },
-    ];
-    const randomEvent = demoEvents[Math.floor(Math.random() * demoEvents.length)];
-    simulateEvent(randomEvent.type, randomEvent.data);
-  }, [simulateEvent]);
 
   const loadAgents = useCallback(async () => {
     if (!isAnchorWallet(wallet)) {
@@ -346,19 +311,6 @@ export default function Home() {
                 </a>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Live Events Feed */}
-        {wallet.publicKey && (
-          <div className="mb-10">
-            <LiveEventsFeed
-              events={events}
-              isConnected={wsConnected}
-              lastEventTime={lastEventTime}
-              onClear={clearEvents}
-              onSimulate={handleSimulateEvent}
-            />
           </div>
         )}
 
