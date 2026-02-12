@@ -8,6 +8,7 @@ Provides intelligent answer evaluation using either:
 This upgrades the simple keyword matching to semantic-aware scoring,
 which is critical for fair agent evaluation in the PoI system.
 """
+import asyncio
 import hashlib
 import json
 import logging
@@ -20,8 +21,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Cache TTL in seconds (1 hour)
-CACHE_TTL = 3600
+# Cache TTL in seconds (24 hours - evaluation questions repeat frequently)
+CACHE_TTL = 86400
+
+# Retry config for rate-limited APIs (429)
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 
 
 @dataclass
@@ -54,6 +59,7 @@ class LLMJudge:
         model: str = "claude-haiku-4-5-20251001",
         enabled: bool = True,
         provider: str = "anthropic",
+        key_rotator=None,
     ):
         """
         Initialize the LLM Judge.
@@ -63,11 +69,13 @@ class LLMJudge:
             model: Model to use for judging.
             enabled: Whether the judge is enabled at all.
             provider: "anthropic" or "openai".
+            key_rotator: Optional GroqKeyRotator for automatic key rotation on 429.
         """
         self.api_key = api_key
         self.model = model
         self.enabled = enabled
         self.provider = provider
+        self._key_rotator = key_rotator
         self._cache: Dict[str, CacheEntry] = {}
         self._llm_available = bool(api_key) and enabled
 
@@ -81,6 +89,19 @@ class LLMJudge:
     def is_llm_available(self) -> bool:
         """Whether LLM-based judging is available."""
         return self._llm_available
+
+    @property
+    def active_api_key(self) -> str:
+        """Get the active API key, using rotator for Groq if available."""
+        if self._key_rotator and self.provider == "groq":
+            return self._key_rotator.current_key
+        return self.api_key
+
+    def _rotate_key_on_429(self):
+        """Rotate to next key after a 429. Updates self.api_key too."""
+        if self._key_rotator and self.provider == "groq":
+            new_key = self._key_rotator.rotate()
+            self.api_key = new_key
 
     def _cache_key(self, question: str, expected: str, answer: str) -> str:
         """Generate a deterministic cache key."""
@@ -234,11 +255,12 @@ class LLMJudge:
 
     def _build_api_request(self, prompt: str) -> tuple[str, dict, dict]:
         """Build API request based on provider. Returns (url, headers, json_body)."""
+        key = self.active_api_key
         if self.provider == "anthropic":
             return (
                 "https://api.anthropic.com/v1/messages",
                 {
-                    "x-api-key": self.api_key,
+                    "x-api-key": key,
                     "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
@@ -259,7 +281,7 @@ class LLMJudge:
             return (
                 base_url,
                 {
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json",
                 },
                 {
@@ -285,17 +307,31 @@ class LLMJudge:
         Judge using LLM API (synchronous via httpx).
 
         Supports both Anthropic and OpenAI providers.
+        Retries on 429 with key rotation and exponential backoff.
         Returns None if the API call fails.
         """
         prompt = self._build_prompt(question, expected, answer)
-        url, headers, body = self._build_api_request(prompt)
 
         try:
+            response = None
             with httpx.Client(timeout=15.0) as client:
-                response = client.post(url, headers=headers, json=body)
+                for attempt in range(MAX_RETRIES):
+                    # Rebuild request each attempt (key may have rotated)
+                    url, headers, body = self._build_api_request(prompt)
+                    response = client.post(url, headers=headers, json=body)
+                    if response.status_code == 429:
+                        self._rotate_key_on_429()
+                        delay = RETRY_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            f"Judge rate limited (429), rotated key, retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                        continue
+                    break
 
-            if response.status_code != 200:
-                logger.warning(f"{self.provider} API returned {response.status_code}: {response.text[:200]}")
+            if response is None or response.status_code != 200:
+                status = response.status_code if response else "no response"
+                logger.warning(f"{self.provider} API returned {status}")
                 return None
 
             data = response.json()
@@ -318,17 +354,31 @@ class LLMJudge:
         Judge using LLM API (async via httpx).
 
         Supports both Anthropic and OpenAI providers.
+        Retries on 429 with key rotation and exponential backoff.
         Returns None if the API call fails.
         """
         prompt = self._build_prompt(question, expected, answer)
-        url, headers, body = self._build_api_request(prompt)
 
         try:
+            response = None
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(url, headers=headers, json=body)
+                for attempt in range(MAX_RETRIES):
+                    # Rebuild request each attempt (key may have rotated)
+                    url, headers, body = self._build_api_request(prompt)
+                    response = await client.post(url, headers=headers, json=body)
+                    if response.status_code == 429:
+                        self._rotate_key_on_429()
+                        delay = RETRY_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            f"Judge async rate limited (429), rotated key, retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    break
 
-            if response.status_code != 200:
-                logger.warning(f"{self.provider} API returned {response.status_code}: {response.text[:200]}")
+            if response is None or response.status_code != 200:
+                status = response.status_code if response else "no response"
+                logger.warning(f"{self.provider} async API returned {status}")
                 return None
 
             data = response.json()

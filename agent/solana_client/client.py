@@ -1,7 +1,10 @@
 """Solana client for interacting with the Agent Registry program"""
 import asyncio
+import base64
+import hashlib
 import json
 import logging
+import struct
 import time
 from pathlib import Path
 from typing import Optional
@@ -10,7 +13,11 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.system_program import ID as SYS_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
+from solana.rpc.types import MemcmpOpts
 from anchorpy import Program, Provider, Wallet, Idl, Context
+
+# Anchor discriminator for AgentAccount (first 8 bytes of SHA256("account:AgentAccount"))
+AGENT_ACCOUNT_DISCRIMINATOR = hashlib.sha256(b"account:AgentAccount").digest()[:8]
 
 logger = logging.getLogger(__name__)
 
@@ -125,13 +132,17 @@ class AgentRegistryClient:
         )
 
     def _get_challenge_pda(self, agent: Pubkey, challenger: Pubkey, nonce: int = 0) -> tuple[Pubkey, int]:
-        """Get a challenge PDA (nonce enables multiple challenges per agent-challenger pair)"""
+        """Get a challenge PDA.
+
+        Note: The deployed program does NOT include nonce in seeds.
+        One challenge PDA per agent-challenger pair. Nonce is stored in
+        the account data but not part of PDA derivation.
+        """
         return Pubkey.find_program_address(
             [
                 b"challenge",
                 bytes(agent),
                 bytes(challenger),
-                nonce.to_bytes(8, "little"),
             ],
             self.program_id
         )
@@ -380,26 +391,30 @@ class AgentRegistryClient:
             "expires_at": challenge.expires_at,
         }
 
-    async def _retry_rpc(self, coro_fn, retries: int = 3, skip_on: Optional[str] = None):
+    async def _retry_rpc(self, coro_fn, retries: int = 3, skip_on=None):
         """
         Retry an async RPC call with exponential backoff.
 
         Args:
             coro_fn: Async callable (no-arg) that performs the RPC call
             retries: Number of retry attempts
-            skip_on: If error message contains this string, don't retry (raise immediately)
+            skip_on: String or list of strings - if error contains any, don't retry (raise immediately)
 
         Returns:
             Result of the successful call
         """
         delays = [1, 2, 4]
         last_err = None
+        # Normalize skip_on to a list
+        if isinstance(skip_on, str):
+            skip_on = [skip_on]
         for attempt in range(retries):
             try:
                 return await coro_fn()
             except Exception as e:
                 last_err = e
-                if skip_on and skip_on.lower() in str(e).lower():
+                err_str = str(e).lower()
+                if skip_on and any(pat.lower() in err_str for pat in skip_on):
                     raise  # Not transient, don't retry
                 if attempt < retries - 1:
                     delay = delays[attempt] if attempt < len(delays) else delays[-1]
@@ -409,23 +424,128 @@ class AgentRegistryClient:
 
     async def discover_agents(self, max_agents: int = 50, known_owners: list[str] = None) -> list[dict]:
         """
-        Discover all registered agents on the network.
+        Discover all registered agents on the network using getProgramAccounts.
 
-        This is KEY for autonomous agent-to-agent interaction.
-        Scans agents by known owner pubkeys (admin + peers).
+        Uses a single RPC call with discriminator filter instead of O(owners*agents)
+        individual account fetches. Falls back to linear scan on error.
 
         Args:
             max_agents: Maximum number of agents to fetch
-            known_owners: Additional owner pubkeys to scan (from peer registry)
+            known_owners: Not used in batch mode (kept for API compat)
 
         Returns:
             List of agent dictionaries
         """
+        try:
+            return await self._discover_agents_batch(max_agents)
+        except Exception as e:
+            logger.warning(f"Batch discovery failed, falling back to linear scan: {e}")
+            return await self._discover_agents_linear(max_agents, known_owners)
+
+    async def _discover_agents_batch(self, max_agents: int = 50) -> list[dict]:
+        """
+        Discover agents via getProgramAccounts (1 RPC call instead of ~20+).
+
+        Filters by AgentAccount discriminator and parses accounts in-memory.
+        """
+        import base58 as b58lib
+        disc_b58 = b58lib.b58encode(AGENT_ACCOUNT_DISCRIMINATOR).decode()
+
+        # Single RPC call with memcmp filter on Anchor discriminator
+        resp = await self.client.get_program_accounts(
+            self.program_id,
+            encoding="base64",
+            filters=[
+                MemcmpOpts(offset=0, bytes=disc_b58),
+            ],
+        )
+
+        agents = []
+        for account_info in resp.value[:max_agents]:
+            try:
+                pda = str(account_info.pubkey)
+                data = account_info.account.data
+                agent = self._parse_agent_account(data)
+                agent["pda"] = pda
+                agents.append(agent)
+            except Exception as e:
+                logger.debug(f"Failed to parse agent account {account_info.pubkey}: {e}")
+                continue
+
+        logger.info(f"Batch discovered {len(agents)} agents (1 RPC call)")
+        return agents
+
+    @staticmethod
+    def _parse_agent_account(data: bytes) -> dict:
+        """
+        Parse raw AgentAccount bytes (Anchor format).
+
+        Layout after 8-byte discriminator:
+          u64 agent_id
+          pubkey owner (32 bytes)
+          string name (4-byte len + utf8)
+          string model_hash (4-byte len + utf8)
+          string capabilities (4-byte len + utf8)
+          u32 reputation_score
+          u32 challenges_passed
+          u32 challenges_failed
+          bool verified (1 byte)
+          i64 created_at
+          i64 updated_at
+          pubkey nft_mint (32 bytes)
+          u8 bump
+        """
+        offset = 8  # skip discriminator
+
+        agent_id = struct.unpack_from("<Q", data, offset)[0]
+        offset += 8
+
+        owner = Pubkey.from_bytes(data[offset:offset + 32])
+        offset += 32
+
+        def read_string(d: bytes, off: int) -> tuple[str, int]:
+            length = struct.unpack_from("<I", d, off)[0]
+            off += 4
+            s = d[off:off + length].decode("utf-8", errors="replace")
+            return s, off + length
+
+        name, offset = read_string(data, offset)
+        model_hash, offset = read_string(data, offset)
+        capabilities, offset = read_string(data, offset)
+
+        reputation_score = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        challenges_passed = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        challenges_failed = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        verified = bool(data[offset])
+        offset += 1
+        # created_at, updated_at (i64 each)
+        offset += 16
+        nft_mint = Pubkey.from_bytes(data[offset:offset + 32])
+        offset += 32
+
+        return {
+            "agent_id": agent_id,
+            "owner": str(owner),
+            "name": name,
+            "model_hash": model_hash,
+            "capabilities": capabilities,
+            "reputation_score": reputation_score,
+            "challenges_passed": challenges_passed,
+            "challenges_failed": challenges_failed,
+            "verified": verified,
+            "nft_mint": str(nft_mint),
+            "index": agent_id,
+        }
+
+    async def _discover_agents_linear(self, max_agents: int = 50, known_owners: list[str] = None) -> list[dict]:
+        """Fallback: linear scan of agents by owner (old method)."""
         registry_state = await self._retry_rpc(self.get_registry_state)
         total_agents = registry_state["total_agents"]
         admin = Pubkey.from_string(registry_state["admin"])
 
-        # Build list of owner pubkeys to scan
         owners = [admin]
         if known_owners:
             for owner_str in known_owners:
@@ -433,7 +553,6 @@ class AgentRegistryClient:
                     owners.append(Pubkey.from_string(owner_str))
                 except Exception:
                     pass
-        # Also include ourselves
         if self.keypair.pubkey() not in owners:
             owners.append(self.keypair.pubkey())
 
@@ -441,19 +560,26 @@ class AgentRegistryClient:
         seen_pdas = set()
 
         for owner in owners:
+            consecutive_misses = 0
             for i in range(min(total_agents + 1, max_agents)):
                 try:
-                    agent = await self._retry_rpc(lambda o=owner, idx=i: self.get_agent(o, idx), skip_on="does not exist")
+                    agent = await self._retry_rpc(
+                        lambda o=owner, idx=i: self.get_agent(o, idx),
+                        skip_on=["does not exist", "seeds constraint"],
+                    )
                     pda = str(self._get_agent_pda(owner, i)[0])
                     if pda not in seen_pdas:
                         agent["pda"] = pda
                         agent["index"] = i
                         agents.append(agent)
                         seen_pdas.add(pda)
+                    consecutive_misses = 0
                 except Exception:
-                    continue
+                    consecutive_misses += 1
+                    if consecutive_misses >= 2:
+                        break
 
-        logger.info(f"Discovered {len(agents)} agents on network (scanned {len(owners)} owners)")
+        logger.info(f"Linear discovered {len(agents)} agents (scanned {len(owners)} owners)")
         return agents
 
     async def create_challenge_for_agent(
@@ -466,14 +592,14 @@ class AgentRegistryClient:
         """
         Create a challenge for another agent.
 
-        This enables AUTONOMOUS AGENT-TO-AGENT INTERACTION:
-        Our agent can challenge other agents to verify their intelligence.
+        Deployed program uses one PDA per agent-challenger pair (no nonce in seeds).
+        If a previous challenge PDA exists, returns None (one active challenge per pair).
 
         Args:
             target_agent_pda: The target agent's PDA
             question: The challenge question
             expected_hash: SHA256 hash of expected answer
-            nonce: Unique nonce for PDA derivation (default: current unix timestamp)
+            nonce: Stored in account data (not used in PDA seeds)
 
         Returns:
             Tuple of (transaction signature, nonce used)
@@ -481,6 +607,20 @@ class AgentRegistryClient:
         if nonce == 0:
             nonce = int(time.time())
         challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey(), nonce)
+
+        # Check if PDA already exists (one per agent-challenger pair)
+        try:
+            existing = await self.program.account["Challenge"].fetch(challenge_pda)
+            if existing:
+                logger.info(
+                    f"Challenge PDA exists for {target_agent_pda} "
+                    f"(status={existing.status}), skipping on-chain create"
+                )
+                raise RuntimeError("challenge_pda_exists")
+        except Exception as e:
+            if "challenge_pda_exists" in str(e):
+                raise
+            # Account doesn't exist - good, we can create
 
         async def _do_create():
             return await self.program.rpc["create_challenge"](
@@ -498,7 +638,7 @@ class AgentRegistryClient:
                 )
             )
 
-        tx = await self._retry_rpc(_do_create, retries=3, skip_on="already in use")
+        tx = await self._retry_rpc(_do_create, retries=3, skip_on=["already in use", "seeds constraint"])
 
         logger.info(f"Challenge created for agent {target_agent_pda}: {tx} (nonce={nonce})")
         return str(tx), nonce

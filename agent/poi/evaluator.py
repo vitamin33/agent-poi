@@ -394,15 +394,49 @@ class SLMEvaluator:
     Uses LLM-as-Judge when available (Anthropic/OpenAI), otherwise falls back
     to enhanced fuzzy matching. Supports difficulty-weighted scoring for
     certification levels.
+
+    Answer generation results are cached to disk (/data/answer_cache_{slug}.json)
+    to avoid redundant LLM calls for static benchmark questions.
     """
 
     def __init__(
         self,
         agent_response_fn: Optional[callable] = None,
         llm_judge: Optional[LLMJudge] = None,
+        cache_dir: str = "/data",
+        agent_slug: str = "",
     ):
         self.agent_response_fn = agent_response_fn
         self.llm_judge = llm_judge
+        self._answer_cache: Dict[str, str] = {}
+        self._cache_path = f"{cache_dir}/answer_cache_{agent_slug}.json" if agent_slug else ""
+        self._load_answer_cache()
+
+    def _load_answer_cache(self):
+        """Load persistent answer cache from disk."""
+        if not self._cache_path:
+            return
+        try:
+            import json
+            with open(self._cache_path) as f:
+                self._answer_cache = json.load(f)
+            logger.info(f"Loaded {len(self._answer_cache)} cached answers from {self._cache_path}")
+        except FileNotFoundError:
+            logger.debug(f"No answer cache at {self._cache_path}, starting fresh")
+        except Exception as e:
+            logger.warning(f"Failed to load answer cache: {e}")
+
+    def _save_answer_cache(self):
+        """Persist answer cache to disk."""
+        if not self._cache_path:
+            return
+        try:
+            import json, os
+            os.makedirs(os.path.dirname(self._cache_path), exist_ok=True)
+            with open(self._cache_path, "w") as f:
+                json.dump(self._answer_cache, f)
+        except Exception as e:
+            logger.warning(f"Failed to save answer cache: {e}")
 
     def evaluate(
         self,
@@ -420,16 +454,27 @@ class SLMEvaluator:
         if not questions:
             raise ValueError(f"Unknown domain: {domain}")
 
-        # Generate answers if not provided
+        # Generate answers if not provided, using persistent cache
         if agent_answers is None and self.agent_response_fn:
             agent_answers = {}
+            cache_hits = 0
             for q in questions:
+                cache_key = hashlib.sha256(q.question.encode()).hexdigest()[:16]
+                if cache_key in self._answer_cache:
+                    agent_answers[q.id] = self._answer_cache[cache_key]
+                    cache_hits += 1
+                    continue
                 try:
                     answer = self.agent_response_fn(q.question)
                     agent_answers[q.id] = answer
+                    if answer:
+                        self._answer_cache[cache_key] = answer
                 except Exception as e:
                     logger.error(f"Failed to get answer for {q.id}: {e}")
                     agent_answers[q.id] = ""
+            if cache_hits > 0:
+                logger.info(f"Answer cache: {cache_hits}/{len(questions)} hits, {len(questions) - cache_hits} LLM calls")
+            self._save_answer_cache()
 
         if agent_answers is None:
             agent_answers = {}

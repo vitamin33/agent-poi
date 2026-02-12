@@ -36,7 +36,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, generate_model_identifier_hash, SLMEvaluator, EvaluationDomain, LLMJudge, QuestionSelector, AuditBatcher, ActionType, DeFiToolkit
+from poi import ChallengeHandler, compute_model_hash, generate_demo_model_hash, generate_model_identifier_hash, SLMEvaluator, EvaluationDomain, LLMJudge, QuestionSelector, AuditBatcher, ActionType, DeFiToolkit, GroqKeyRotator
 from solana_client import AgentRegistryClient
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,8 @@ LLM_JUDGE_PROVIDER = os.getenv("LLM_JUDGE_PROVIDER", "anthropic")
 # Answer generation: prefer Groq (free) over Anthropic for cost savings
 ANSWER_PROVIDER = os.getenv("ANSWER_PROVIDER", "groq" if GROQ_API_KEY else "anthropic")
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct" if GROQ_API_KEY else "claude-haiku-4-5-20251001")
+# Groq key rotator (singleton, shared across all agents)
+GROQ_ROTATOR = GroqKeyRotator() if GROQ_API_KEY else None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -313,8 +315,12 @@ async def _poll_challenges(state: AgentState):
 
 async def _self_evaluation(state: AgentState):
     """Background: periodic SLM benchmarks."""
-    _log_activity(state, "self_evaluation", "started", {"interval": SELF_EVAL_INTERVAL})
-    await asyncio.sleep(60)
+    # Stagger start by agent slug to avoid Groq rate-limit bursts
+    # alpha=60s, beta=180s, gamma=300s  (120s between each agent's eval burst)
+    stagger_offsets = {"alpha": 60, "beta": 180, "gamma": 300}
+    initial_delay = stagger_offsets.get(state.slug, 60)
+    _log_activity(state, "self_evaluation", "started", {"interval": SELF_EVAL_INTERVAL, "initial_delay": initial_delay})
+    await asyncio.sleep(initial_delay)
     while True:
         try:
             domains = [EvaluationDomain.DEFI, EvaluationDomain.SOLANA, EvaluationDomain.SECURITY]
@@ -325,7 +331,11 @@ async def _self_evaluation(state: AgentState):
                 def agent_respond(q: str) -> str:
                     return state.challenge_handler.respond_to_challenge(q).answer
 
-                evaluator = SLMEvaluator(agent_response_fn=agent_respond, llm_judge=state.llm_judge)
+                evaluator = SLMEvaluator(
+                    agent_response_fn=agent_respond,
+                    llm_judge=state.llm_judge,
+                    agent_slug=state.slug,
+                )
                 # Run in thread pool to avoid blocking the event loop
                 # (sync LLM calls would block health endpoint responses)
                 t0 = time.monotonic()
@@ -422,12 +432,16 @@ async def _cross_agent_challenges(state: AgentState):
     Background: autonomous cross-agent A2A challenges with domain questions,
     LLM judge scoring, and on-chain reputation updates.
     """
+    # Stagger start by agent slug to avoid RPC burst at startup
+    stagger_offsets = {"alpha": 90, "beta": 120, "gamma": 150}
+    initial_delay = stagger_offsets.get(state.slug, 90)
     _log_activity(state, "a2a_challenges", "started", {
         "interval": CROSS_AGENT_CHALLENGE_INTERVAL,
         "peers": state.peers,
         "mode": "adaptive",
+        "initial_delay": initial_delay,
     })
-    await asyncio.sleep(90)
+    await asyncio.sleep(initial_delay)
     idx = 0
     while True:
         try:
@@ -651,10 +665,17 @@ async def _cross_agent_challenges(state: AgentState):
                                 "nonce": challenge_nonce,
                             })
                         except Exception as e:
-                            interaction["steps"].append({
-                                "step": "on_chain_challenge", "status": "failed",
-                                "error": str(e)[:100],
-                            })
+                            err_str = str(e)
+                            if "challenge_pda_exists" in err_str:
+                                interaction["steps"].append({
+                                    "step": "on_chain_challenge", "status": "reused_existing",
+                                    "note": "Challenge PDA already exists for this pair",
+                                })
+                            else:
+                                interaction["steps"].append({
+                                    "step": "on_chain_challenge", "status": "failed",
+                                    "error": err_str[:100],
+                                })
 
                         # POST to peer's /challenge/submit -> reputation changes
                         if on_chain_tx:
@@ -1176,6 +1197,7 @@ def create_agent_app(
             model=_agent_answer_model,
             enabled=LLM_JUDGE_ENABLED,
             provider=_agent_answer_provider,
+            key_rotator=GROQ_ROTATOR if _agent_answer_provider == "groq" else None,
         )
         _judge_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
         state.llm_judge = LLMJudge(
@@ -1183,6 +1205,7 @@ def create_agent_app(
             model=LLM_JUDGE_MODEL,
             enabled=LLM_JUDGE_ENABLED,
             provider=LLM_JUDGE_PROVIDER,
+            key_rotator=GROQ_ROTATOR if LLM_JUDGE_PROVIDER == "groq" else None,
         )
         answer_mode = f"{_agent_answer_provider}/{_agent_answer_model}" if answer_llm.is_llm_available else "fuzzy"
         judge_mode = f"{LLM_JUDGE_PROVIDER}/{LLM_JUDGE_MODEL}" if state.llm_judge.is_llm_available else "fuzzy"
@@ -1565,6 +1588,7 @@ def create_agent_app(
         evaluator = SLMEvaluator(
             agent_response_fn=agent_respond if request.answers is None else None,
             llm_judge=state.llm_judge,
+            agent_slug=slug,
         )
         result = await asyncio.to_thread(evaluator.evaluate, eval_domain, request.answers)
         return EvaluationResponse(
@@ -1597,7 +1621,7 @@ def create_agent_app(
             def agent_respond(q: str) -> str:
                 return state.challenge_handler.respond_to_challenge(q).answer
 
-            evaluator = SLMEvaluator(agent_response_fn=agent_respond, llm_judge=state.llm_judge)
+            evaluator = SLMEvaluator(agent_response_fn=agent_respond, llm_judge=state.llm_judge, agent_slug=slug)
             result = await asyncio.to_thread(evaluator.evaluate, domain)
             domain_results[domain.value] = {
                 "weighted_score": result.weighted_score,
@@ -2165,7 +2189,9 @@ async def network_overview():
 
     for st in all_states:
         n_interactions = len(st.a2a_interactions)
-        n_on_chain = sum(1 for i in st.a2a_interactions if i.get("on_chain_tx"))
+        n_on_chain_challenges = sum(1 for i in st.a2a_interactions if i.get("on_chain_tx"))
+        n_merkle_batches = st.audit_batcher.total_batches_stored if st.audit_batcher else 0
+        n_on_chain = n_on_chain_challenges + n_merkle_batches
         n_evals = len(st.evaluation_history)
         total_interactions += n_interactions
         total_on_chain += n_on_chain
@@ -2192,6 +2218,7 @@ async def network_overview():
             "verified": st.agent_info.get("verified", False) if st.agent_info else False,
             "a2a_interactions": n_interactions,
             "on_chain_txs": n_on_chain,
+            "merkle_batches": n_merkle_batches,
             "evaluations": n_evals,
             "avg_eval_score": round(avg_score, 1),
             "certifications": len(st.certification_history),

@@ -13,6 +13,7 @@ from .merkle_audit import (
     verify_merkle_proof,
 )
 from .defi_tools import DeFiToolkit, DeFiToolResult
+from .key_rotator import GroqKeyRotator
 
 __all__ = [
     "compute_model_hash",
@@ -36,4 +37,5 @@ __all__ = [
     "verify_merkle_proof",
     "DeFiToolkit",
     "DeFiToolResult",
+    "GroqKeyRotator",
 ]

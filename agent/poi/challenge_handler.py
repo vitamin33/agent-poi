@@ -1,10 +1,15 @@
 """Challenge response handler for Proof-of-Intelligence"""
 import hashlib
 import logging
+import time
 from typing import Optional, Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# Retry config for rate-limited APIs (429)
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 
 
 @dataclass
@@ -161,10 +166,42 @@ class ChallengeHandler:
             confidence=confidence,
         )
 
+    def _build_answer_request(self, system_prompt: str, prompt: str) -> tuple[str, dict, dict]:
+        """Build API request for answer generation using LLMJudge's config."""
+        key = self.llm_judge.active_api_key
+        model = self.llm_judge.model
+
+        if self.llm_judge.provider == "anthropic":
+            return (
+                "https://api.anthropic.com/v1/messages",
+                {"x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
+                {"model": model, "max_tokens": 400, "system": system_prompt,
+                 "messages": [{"role": "user", "content": prompt}], "temperature": 0.3},
+            )
+        elif self.llm_judge.provider == "groq":
+            return (
+                "https://api.groq.com/openai/v1/chat/completions",
+                {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                {"model": model, "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ], "temperature": 0.3, "max_tokens": 400},
+            )
+        else:  # openai
+            return (
+                "https://api.openai.com/v1/chat/completions",
+                {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                {"model": model, "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ], "temperature": 0.3, "max_tokens": 400},
+            )
+
     def _generate_llm_answer(self, question: str) -> Optional[str]:
         """
         Generate an answer using Claude/OpenAI via LLMJudge's API infrastructure.
 
+        Retries on 429 with key rotation and exponential backoff.
         Returns None if LLM is unavailable or call fails.
         """
         if not self.llm_judge or not self.llm_judge.is_llm_available:
@@ -172,6 +209,7 @@ class ChallengeHandler:
 
         try:
             import httpx
+            import re
 
             personality_context = {
                 "defi": "You are a DeFi specialist AI agent with deep knowledge of AMMs, yield farming, and liquidity protocols.",
@@ -190,57 +228,27 @@ class ChallengeHandler:
 
             prompt = f"Question: {question}\n\nProvide a thorough, expert answer with specific details."
 
-            # Reuse LLMJudge's API config
-            if self.llm_judge.provider == "anthropic":
-                url = "https://api.anthropic.com/v1/messages"
-                headers = {
-                    "x-api-key": self.llm_judge.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                }
-                body = {
-                    "model": self.llm_judge.model,
-                    "max_tokens": 400,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                }
-            elif self.llm_judge.provider == "groq":
-                url = "https://api.groq.com/openai/v1/chat/completions"
-                headers = {
-                    "Authorization": f"Bearer {self.llm_judge.api_key}",
-                    "Content-Type": "application/json",
-                }
-                body = {
-                    "model": self.llm_judge.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 400,
-                }
-            else:  # openai
-                url = "https://api.openai.com/v1/chat/completions"
-                headers = {
-                    "Authorization": f"Bearer {self.llm_judge.api_key}",
-                    "Content-Type": "application/json",
-                }
-                body = {
-                    "model": self.llm_judge.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 400,
-                }
-
+            # Retry with exponential backoff and key rotation on 429
+            response = None
             with httpx.Client(timeout=15.0) as http:
-                response = http.post(url, headers=headers, json=body)
+                for attempt in range(MAX_RETRIES):
+                    # Rebuild request each attempt (key may have rotated)
+                    url, headers, body = self._build_answer_request(system_prompt, prompt)
+                    response = http.post(url, headers=headers, json=body)
+                    if response.status_code == 429:
+                        self.llm_judge._rotate_key_on_429()
+                        delay = RETRY_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            f"Rate limited (429) on answer generation, "
+                            f"rotated key, retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                        continue
+                    break  # success or non-retryable error
 
-            if response.status_code != 200:
-                logger.warning(f"LLM answer generation failed: {response.status_code}")
+            if response is None or response.status_code != 200:
+                status = response.status_code if response else "no response"
+                logger.warning(f"LLM answer generation failed: {status}")
                 return None
 
             data = response.json()
@@ -250,7 +258,6 @@ class ChallengeHandler:
                 answer = data["choices"][0]["message"]["content"].strip()
 
             # Strip chain-of-thought tags (e.g. Qwen3 <think>...</think>)
-            import re
             answer = re.sub(r"<think>.*?</think>\s*", "", answer, flags=re.DOTALL).strip()
 
             logger.info(f"LLM-generated answer ({self.llm_judge.provider}): {answer[:80]}...")

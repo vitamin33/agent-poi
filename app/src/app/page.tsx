@@ -26,22 +26,33 @@ export default function Home() {
   const [showRegister, setShowRegister] = useState(false);
   const [registryInfo, setRegistryInfo] = useState<RegistryData | null>(null);
   const [a2aInteractionCount, setA2aInteractionCount] = useState<number>(0);
+  const [certifiedCount, setCertifiedCount] = useState<number>(0);
 
-  // Fetch A2A interaction count (independent of wallet)
+  // Fetch A2A interaction count and certification count (independent of wallet)
   useEffect(() => {
-    const fetchA2aCount = async () => {
+    const fetchStats = async () => {
       try {
-        const res = await fetch("/api/a2a?endpoint=interactions");
-        if (res.ok) {
-          const data = await res.json();
+        const [a2aRes, certRes] = await Promise.all([
+          fetch("/api/a2a?endpoint=interactions"),
+          fetch("/api/certifications"),
+        ]);
+        if (a2aRes.ok) {
+          const data = await a2aRes.json();
           setA2aInteractionCount(data.summary?.total_interactions ?? 0);
+        }
+        if (certRes.ok) {
+          const data = await certRes.json();
+          const total = Array.isArray(data)
+            ? data.reduce((sum: number, a: { total_certifications?: number }) => sum + (a.total_certifications ?? 0), 0)
+            : 0;
+          setCertifiedCount(total);
         }
       } catch {
         // Agent may not be running - silently ignore
       }
     };
-    fetchA2aCount();
-    const interval = setInterval(fetchA2aCount, 15000);
+    fetchStats();
+    const interval = setInterval(fetchStats, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -251,7 +262,7 @@ export default function Home() {
                   <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Certified</span>
                 </div>
                 <div className="text-2xl font-bold text-[#f59e0b]">
-                  3
+                  {certifiedCount}
                 </div>
               </div>
 
