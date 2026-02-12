@@ -16,6 +16,7 @@ Certification Levels:
 - Uncertified (< 50): Insufficient capability
 """
 import hashlib
+import random
 import time
 import logging
 from dataclasses import dataclass, field
@@ -442,25 +443,57 @@ class SLMEvaluator:
         self,
         domain: EvaluationDomain,
         agent_answers: Optional[Dict[str, str]] = None,
+        sample_size: int = 7,
+        refresh_count: int = 2,
     ) -> EvaluationResult:
         """
         Run evaluation benchmark for a domain with difficulty-weighted scoring.
+
+        Randomly samples `sample_size` questions from the pool each run and
+        refreshes `refresh_count` cached answers with fresh LLM calls.
+        This creates natural score variance while staying within Groq rate limits.
 
         Returns EvaluationResult with both legacy score and weighted certification score.
         """
         start_time = time.time()
 
-        questions = BENCHMARKS.get(domain, [])
-        if not questions:
+        all_questions = BENCHMARKS.get(domain, [])
+        if not all_questions:
             raise ValueError(f"Unknown domain: {domain}")
 
-        # Generate answers if not provided, using persistent cache
+        # Randomly sample questions for variety between runs
+        # Ensure at least 1 from each difficulty tier if possible
+        if len(all_questions) > sample_size:
+            easy = [q for q in all_questions if q.difficulty <= 2]
+            medium = [q for q in all_questions if q.difficulty == 3]
+            hard = [q for q in all_questions if q.difficulty >= 4]
+            sampled = []
+            for tier_pool in [easy, medium, hard]:
+                if tier_pool:
+                    sampled.append(random.choice(tier_pool))
+            remaining_pool = [q for q in all_questions if q not in sampled]
+            extra_needed = sample_size - len(sampled)
+            if extra_needed > 0 and remaining_pool:
+                sampled.extend(random.sample(remaining_pool, min(extra_needed, len(remaining_pool))))
+            questions = sampled
+        else:
+            questions = list(all_questions)
+
+        logger.info(f"Evaluating {domain.value}: {len(questions)}/{len(all_questions)} questions sampled")
+
+        # Generate answers with smart caching: use cache but randomly refresh
+        # `refresh_count` answers per run for score variance
         if agent_answers is None and self.agent_response_fn:
             agent_answers = {}
             cache_hits = 0
+            # Pick which questions to force-refresh (random subset)
+            refresh_ids = set()
+            if refresh_count > 0 and len(questions) > refresh_count:
+                refresh_ids = set(q.id for q in random.sample(questions, refresh_count))
             for q in questions:
                 cache_key = hashlib.sha256(q.question.encode()).hexdigest()[:16]
-                if cache_key in self._answer_cache:
+                force_refresh = q.id in refresh_ids
+                if not force_refresh and cache_key in self._answer_cache:
                     agent_answers[q.id] = self._answer_cache[cache_key]
                     cache_hits += 1
                     continue
@@ -472,8 +505,8 @@ class SLMEvaluator:
                 except Exception as e:
                     logger.error(f"Failed to get answer for {q.id}: {e}")
                     agent_answers[q.id] = ""
-            if cache_hits > 0:
-                logger.info(f"Answer cache: {cache_hits}/{len(questions)} hits, {len(questions) - cache_hits} LLM calls")
+            fresh_calls = len(questions) - cache_hits
+            logger.info(f"Answer cache: {cache_hits} hits, {fresh_calls} fresh LLM calls ({len(refresh_ids)} forced refreshes)")
             self._save_answer_cache()
 
         if agent_answers is None:

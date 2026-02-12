@@ -42,9 +42,9 @@ from solana_client import AgentRegistryClient
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-AGENT_VERSION = "4.0.0-adaptive-economic"
+AGENT_VERSION = "4.1.0-adaptive-live"
 CHALLENGE_POLL_INTERVAL = 30
-SELF_EVAL_INTERVAL = 900
+SELF_EVAL_INTERVAL = 600  # 10 min — frequent enough for live adaptation visibility
 CROSS_AGENT_CHALLENGE_INTERVAL = 300
 
 # Economic transaction constants (devnet)
@@ -964,18 +964,35 @@ def _should_challenge_urgently(state: AgentState) -> tuple[bool, str]:
                 )
                 return _fire_trigger("new_peer", reason)
 
-    # Trigger 3: Own domain score below 40% (use SELF scores, not peer scores)
+    # Trigger 3: Own domain score below threshold (use SELF scores, not peer scores)
     # Only trigger if we have enough self-eval data to be meaningful
+    LOW_SCORE_THRESHOLD = 55  # triggers adaptation when score dips below this
     for domain, scores in state.self_domain_scores.items():
         category = f"low_self_score:{domain}"
-        if scores and len(scores) >= 2 and scores[-1] < 40 and _check_cooldown(category):
+        if scores and len(scores) >= 2 and scores[-1] < LOW_SCORE_THRESHOLD and _check_cooldown(category):
             reason = (
                 f"low_self_score:{domain}={scores[-1]:.0f}% | "
-                f"Reasoning: Self-evaluation in {domain} at {scores[-1]:.0f}% (below 40% threshold). "
+                f"Reasoning: Self-evaluation in {domain} at {scores[-1]:.0f}% (below {LOW_SCORE_THRESHOLD}% threshold). "
                 f"Targeting {domain} questions to peers for comparative learning. "
                 f"Trend: {_score_trend(scores)}"
             )
             return _fire_trigger(category, reason)
+
+    # Trigger 4: Score variance detected (score changed significantly from last run)
+    for domain, scores in state.self_domain_scores.items():
+        category = f"score_variance:{domain}"
+        if len(scores) >= 3 and _check_cooldown(category):
+            recent_delta = abs(scores[-1] - scores[-2])
+            if recent_delta >= 10:  # 10+ point swing between runs
+                direction = "improved" if scores[-1] > scores[-2] else "dropped"
+                reason = (
+                    f"score_variance:{domain}={recent_delta:.0f}pt swing | "
+                    f"Reasoning: {domain} score {direction} by {recent_delta:.0f} points "
+                    f"({scores[-2]:.0f}% -> {scores[-1]:.0f}%). "
+                    f"Challenging peers to validate performance shift. "
+                    f"Trend: {_score_trend(scores)}"
+                )
+                return _fire_trigger(category, reason)
 
     return False, ""
 
@@ -1768,6 +1785,7 @@ def create_agent_app(
                 "merkle_batches_flushed": audit_stats.get("total_batches_stored", 0),
                 "merkle_entries_logged": audit_stats.get("total_entries_logged", 0),
                 "total_activities_logged": len(state.activity_log),
+                "total_on_chain_transactions": on_chain_challenges + audit_stats.get("total_batches_stored", 0),
             },
             "background_tasks": {
                 "challenge_polling": {"status": "running", "interval": f"{CHALLENGE_POLL_INTERVAL}s"},
