@@ -548,6 +548,7 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
   const [peersData, setPeersData] = useState<PeersResponse | null>(null);
   const [interactionsData, setInteractionsData] = useState<InteractionsResponse | null>(null);
   const [selfStatus, setSelfStatus] = useState<AgentStatusResponse | null>(null);
+  const [onChainRoots, setOnChainRoots] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
@@ -557,14 +558,19 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
 
   const fetchData = useCallback(async () => {
     try {
-      const [peersRes, interactionsRes, statusRes] = await Promise.all([
+      const [peersRes, interactionsRes, statusRes, auditRes] = await Promise.all([
         fetch("/api/a2a?endpoint=peers"),
         fetch("/api/a2a?endpoint=interactions"),
         fetch("/api/a2a?endpoint=status"),
+        fetch("/api/a2a?endpoint=audit"),
       ]);
 
       if (peersRes.ok) setPeersData(await peersRes.json());
       if (statusRes.ok) setSelfStatus(await statusRes.json());
+      if (auditRes.ok) {
+        const auditData = await auditRes.json();
+        setOnChainRoots(auditData.total_on_chain_roots || 0);
+      }
 
       if (interactionsRes.ok) {
         const iData: InteractionsResponse = await interactionsRes.json();
@@ -893,7 +899,7 @@ export function A2ANetworkView({ agentUrl }: A2ANetworkViewProps) {
                 { label: "Total Challenges", value: summary.total_interactions, color: "var(--accent-primary)" },
                 { label: "Avg A2A Score", value: avgJudgeScore != null ? `${avgJudgeScore}/100` : "-", color: avgJudgeScore ? getScoreColor(avgJudgeScore) : "#64748b" },
                 { label: "Online Peers", value: summary.unique_peers, color: "#a855f7" },
-                { label: "On-Chain", value: summary.successful_on_chain, color: "#10b981" },
+                { label: "On-Chain", value: onChainRoots || summary.successful_on_chain, color: "#10b981" },
               ].map((stat, i) => (
                 <div
                   key={i}

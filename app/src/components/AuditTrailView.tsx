@@ -11,7 +11,8 @@ interface AuditAgent {
   recent_batches?: Array<{
     batch_index: number;
     merkle_root: string;
-    entry_count: number;
+    entries_count?: number;
+    entry_count?: number;
     tx_signature?: string;
     timestamp?: string;
   }>;
@@ -224,7 +225,7 @@ export function AuditTrailView() {
                     <code className="text-[var(--accent-primary)] font-mono truncate max-w-[160px]">
                       {batch.merkle_root?.substring(0, 16)}...
                     </code>
-                    <span className="text-[var(--text-muted)]">{batch.entry_count} entries</span>
+                    <span className="text-[var(--text-muted)]">{batch.entries_count ?? batch.entry_count} entries</span>
                     {batch.tx_signature && (
                       <a
                         href={`https://explorer.solana.com/tx/${batch.tx_signature}?cluster=devnet`}
