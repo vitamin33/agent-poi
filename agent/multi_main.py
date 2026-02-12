@@ -259,11 +259,20 @@ def load_state(state: AgentState) -> bool:
         state.domain_scores = data.get("domain_scores", {})
         state.last_reputation = data.get("last_reputation", 5000)
         state.adaptive_triggers = data.get("adaptive_triggers", [])
+        # Restore Merkle audit batches
+        saved_batches = data.get("audit_batches", [])
+        if saved_batches and state.audit_batcher:
+            state.audit_batcher.flushed_batches = saved_batches
+            state.audit_batcher.total_batches_stored = len(saved_batches)
+            state.audit_batcher.total_entries_logged = sum(
+                b.get("entry_count", 0) for b in saved_batches
+            )
         saved_at = data.get("saved_at", "unknown")
         logger.info(
             f"[{state.slug}] State restored from {saved_at} "
             f"({len(state.a2a_interactions)} interactions, "
-            f"{len(state.economic_transactions)} txs)"
+            f"{len(state.economic_transactions)} txs, "
+            f"{len(saved_batches)} audit batches)"
         )
         return True
     except Exception as e:
