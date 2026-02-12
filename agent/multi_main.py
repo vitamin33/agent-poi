@@ -154,7 +154,7 @@ class AgentState:
     wallet_path: str
     peers: list  # URLs of peer agent sub-apps
     model_provider: str = "anthropic"
-    model_name: str = "claude-haiku-4-5"
+    model_name: str = "claude-haiku-4-5-20251001"
     client: Optional[AgentRegistryClient] = None
     challenge_handler: Optional[ChallengeHandler] = None
     llm_judge: Optional[LLMJudge] = None
@@ -1032,7 +1032,7 @@ def create_agent_app(
     wallet_path: str,
     peers: list[str],
     model_provider: str = "anthropic",
-    model_name: str = "claude-haiku-4-5",
+    model_name: str = "claude-haiku-4-5-20251001",
 ) -> tuple[FastAPI, AgentState]:
     """
     Create a FastAPI sub-app for one agent instance.
@@ -1838,7 +1838,7 @@ AGENT_CONFIGS = [
         "personality": "defi",
         "capabilities": "defi-analysis,yield-farming,amm-math,cross-agent-discovery,agentipy-defi",
         "model_provider": "anthropic",
-        "model_name": "claude-3-haiku-20240307",
+        "model_name": "claude-haiku-4-5-20251001",
     },
     {
         "name": "PoI-Beta",
