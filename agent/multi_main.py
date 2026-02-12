@@ -716,8 +716,10 @@ async def _pay_peer(state: AgentState, peer_pubkey_str: str, lamports: int, reas
         from solders.pubkey import Pubkey
         to_pubkey = Pubkey.from_string(peer_pubkey_str)
         tx_sig = await state.client.transfer_sol(to_pubkey, lamports)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        sender_pubkey = str(state.client.keypair.pubkey())
         txn_record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso,
             "direction": "sent",
             "counterparty": peer_pubkey_str[:12] + "...",
             "lamports": lamports,
@@ -729,6 +731,29 @@ async def _pay_peer(state: AgentState, peer_pubkey_str: str, lamports: int, reas
         if len(state.economic_transactions) > 200:
             state.economic_transactions.pop(0)
         state.total_sol_sent += lamports
+
+        # Record the RECEIVED side on the peer agent (if running in same process)
+        for peer_state in all_states:
+            peer_owner = peer_state.peer_registry.get(peer_state.name, {}).get("owner", "")
+            # Match by pubkey
+            if peer_state is not state and peer_state.client:
+                peer_pub = str(peer_state.client.keypair.pubkey())
+                if peer_pub == peer_pubkey_str:
+                    recv_record = {
+                        "timestamp": now_iso,
+                        "direction": "received",
+                        "counterparty": sender_pubkey[:12] + "...",
+                        "lamports": lamports,
+                        "sol": lamports / 1_000_000_000,
+                        "reason": reason,
+                        "tx": tx_sig,
+                    }
+                    peer_state.economic_transactions.append(recv_record)
+                    if len(peer_state.economic_transactions) > 200:
+                        peer_state.economic_transactions.pop(0)
+                    peer_state.total_sol_received += lamports
+                    break
+
         _log_activity(state, "economic_payment", "sent", {
             "to": peer_pubkey_str[:12], "lamports": lamports, "reason": reason, "tx": tx_sig[:16],
         })

@@ -11,7 +11,8 @@ interface DomainPerformance {
 
 interface AdaptiveTrigger {
   timestamp: string;
-  reason: string;
+  trigger: string;
+  reason?: string;
   action: string;
   details?: Record<string, unknown>;
 }
@@ -322,7 +323,7 @@ export function AdaptiveBehaviorView() {
                     </span>
 
                     <span className="flex-1 text-xs text-[var(--text-secondary)] truncate min-w-0">
-                      {trigger.reason}
+                      {trigger.trigger || trigger.reason}
                     </span>
 
                     <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 w-12 text-right">
