@@ -17,11 +17,24 @@ interface AdaptiveTrigger {
   details?: Record<string, unknown>;
 }
 
+interface RateLimiting {
+  cooldown_seconds: number;
+  max_urgent_per_hour: number;
+  urgent_challenges_this_hour: number;
+  budget_remaining: number;
+  active_cooldowns: Record<string, string>;
+}
+
 interface AgentAdaptive {
   agent_name: string;
   description: string;
-  domain_performance: Record<string, DomainPerformance>;
+  // New format: self_performance (own eval scores)
+  self_performance?: Record<string, DomainPerformance>;
+  // Legacy format: domain_performance (peer observed)
+  domain_performance?: Record<string, DomainPerformance>;
+  peer_observed_quality?: Record<string, { avg_score: number; total_observations: number }>;
   weakest_domain: string | null;
+  rate_limiting?: RateLimiting;
   adaptive_triggers: {
     total: number;
     recent: AdaptiveTrigger[];
@@ -191,12 +204,13 @@ export function AdaptiveBehaviorView() {
       <div className={`transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-[4000px]" : "max-h-0"}`}>
         {/* Behavior modes */}
         <div className="px-5 pb-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
             {[
-              { label: "Reputation Monitor", desc: "Triggers if rep drops 200+", icon: "\u26A0", active: true },
-              { label: "New Peer Detection", desc: "Challenge new peers immediately", icon: "\uD83D\uDD0D", active: true },
-              { label: "Weak Domain Focus", desc: "Prioritize lowest-scoring area", icon: "\uD83C\uDFAF", active: true },
-              { label: "Difficulty Scaling", desc: "Auto-adjust per domain score", icon: "\uD83D\uDCC8", active: true },
+              { label: "Reputation Monitor", desc: "Triggers if rep drops 200+ (10m cooldown)", icon: "\u26A0", active: true },
+              { label: "New Peer Detection", desc: "Probe new peers on discovery", icon: "\uD83D\uDD0D", active: true },
+              { label: "Weak Domain Focus", desc: "Self-eval driven improvement", icon: "\uD83C\uDFAF", active: true },
+              { label: "Difficulty Scaling", desc: "Auto-adjust per self-eval", icon: "\uD83D\uDCC8", active: true },
+              { label: "Challenge Budget", desc: `${data.agents[0]?.rate_limiting?.budget_remaining ?? 8}/${data.agents[0]?.rate_limiting?.max_urgent_per_hour ?? 8} remaining/hr`, icon: "\uD83D\uDCB0", active: true },
             ].map((mode, i) => (
               <div key={i} className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[rgba(0,240,255,0.04)]">
                 <div className="flex items-center gap-2 mb-1">
@@ -223,7 +237,7 @@ export function AdaptiveBehaviorView() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {data.agents.map((agent, idx) => {
               const colors = AGENT_COLORS[agent.agent_name] || { text: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.3)" };
-              const domains = Object.entries(agent.domain_performance);
+              const domains = Object.entries(agent.self_performance || agent.domain_performance || {});
               return (
                 <div key={idx} className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[rgba(0,240,255,0.05)]">
                   <div className="flex items-center justify-between mb-3">
@@ -307,26 +321,38 @@ export function AdaptiveBehaviorView() {
             ) : (
               allTriggers.map((trigger, idx) => {
                 const agentColor = AGENT_COLORS[trigger.agent]?.text || "#94a3b8";
+                const triggerText = trigger.trigger || trigger.reason || "";
+                // New format: "trigger_type:detail | Reasoning: explanation"
+                const [triggerLabel, reasoning] = triggerText.includes(" | Reasoning: ")
+                  ? [triggerText.split(" | Reasoning: ")[0], triggerText.split(" | Reasoning: ")[1]]
+                  : [triggerText, null];
                 return (
                   <div
                     key={idx}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-surface)]/50 transition-colors"
+                    className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-surface)]/50 transition-colors"
                   >
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-[rgba(59,130,246,0.1)]">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-[rgba(59,130,246,0.1)] mt-0.5">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-[#3b82f6]">
                         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </div>
 
-                    <span className="text-xs font-semibold flex-shrink-0 w-16" style={{ color: agentColor }}>
+                    <span className="text-xs font-semibold flex-shrink-0 w-16 mt-0.5" style={{ color: agentColor }}>
                       {trigger.agent.replace("PoI-", "")}
                     </span>
 
-                    <span className="flex-1 text-xs text-[var(--text-secondary)] truncate min-w-0">
-                      {trigger.trigger || trigger.reason}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs text-[var(--text-secondary)] block truncate">
+                        {triggerLabel}
+                      </span>
+                      {reasoning && (
+                        <span className="text-[10px] text-[var(--text-muted)] block mt-0.5 leading-tight">
+                          {reasoning}
+                        </span>
+                      )}
+                    </div>
 
-                    <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 w-12 text-right">
+                    <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 w-12 text-right mt-0.5">
                       {formatRelativeTime(trigger.timestamp)}
                     </span>
                   </div>
@@ -344,10 +370,11 @@ export function AdaptiveBehaviorView() {
               <path d="M12 16v-4M12 8h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
             <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-              <strong className="text-[var(--text-secondary)]">Adaptive Intelligence:</strong>{" "}
-              Unlike scripted agents with fixed timers, our agents make strategic decisions: reputation drops
-              trigger self-improvement, new peers are challenged immediately, weak domains receive focused
-              attention, and difficulty auto-scales based on performance trends.
+              <strong className="text-[var(--text-secondary)]">Adaptive Intelligence with Rate-Limited Reasoning:</strong>{" "}
+              Agents make strategic decisions with explicit reasoning: self-evaluations drive domain focus,
+              reputation changes trigger recovery protocols, new peers are probed for network intelligence.
+              Each trigger category has a 10-minute cooldown and hourly budget to prevent resource waste while
+              maintaining responsive adaptation.
             </p>
           </div>
         </div>

@@ -183,9 +183,14 @@ class AgentState:
     total_sol_sent: int = 0       # lamports
     total_sol_received: int = 0   # lamports
     # Adaptive behavior tracking
-    domain_scores: dict = field(default_factory=dict)  # domain -> [scores]
+    domain_scores: dict = field(default_factory=dict)  # domain -> [peer scores observed]
+    self_domain_scores: dict = field(default_factory=dict)  # domain -> [own eval scores]
     last_reputation: int = 5000
     adaptive_triggers: list = field(default_factory=list)  # log of why actions were triggered
+    # Rate limiting for adaptive triggers
+    _urgent_cooldowns: dict = field(default_factory=dict)  # trigger_category -> last_fired_ts
+    _hourly_challenge_count: int = 0
+    _hourly_challenge_reset_ts: float = 0.0
 
 
 def _log_activity(state: AgentState, action: str, status: str, details: dict = None):
@@ -226,8 +231,10 @@ def save_state(state: AgentState) -> None:
         "total_sol_sent": state.total_sol_sent,
         "total_sol_received": state.total_sol_received,
         "domain_scores": state.domain_scores,
+        "self_domain_scores": state.self_domain_scores,
         "last_reputation": state.last_reputation,
         "adaptive_triggers": state.adaptive_triggers[-50:],
+        "hourly_challenge_count": state._hourly_challenge_count,
         "audit_batches": [
             {k: v for k, v in b.items() if k != "entries"}
             for b in (state.audit_batcher.flushed_batches if state.audit_batcher else [])
@@ -257,8 +264,10 @@ def load_state(state: AgentState) -> bool:
         state.total_sol_sent = data.get("total_sol_sent", 0)
         state.total_sol_received = data.get("total_sol_received", 0)
         state.domain_scores = data.get("domain_scores", {})
+        state.self_domain_scores = data.get("self_domain_scores", {})
         state.last_reputation = data.get("last_reputation", 5000)
         state.adaptive_triggers = data.get("adaptive_triggers", [])
+        state._hourly_challenge_count = data.get("hourly_challenge_count", 0)
         # Restore Merkle audit batches
         saved_batches = data.get("audit_batches", [])
         if saved_batches and state.audit_batcher:
@@ -338,8 +347,17 @@ async def _self_evaluation(state: AgentState):
                 if len(state.evaluation_history) > 50:
                     state.evaluation_history.pop(0)
 
+                # Track SELF domain scores for adaptive behavior decisions
+                domain_key = result.domain
+                if domain_key not in state.self_domain_scores:
+                    state.self_domain_scores[domain_key] = []
+                state.self_domain_scores[domain_key].append(result.score)
+                if len(state.self_domain_scores[domain_key]) > 20:
+                    state.self_domain_scores[domain_key].pop(0)
+
                 _log_activity(state, "self_evaluation", "completed", {
                     "domain": result.domain, "score": result.score, "passed": result.passed,
+                    "trend": _score_trend(state.self_domain_scores.get(domain_key, [])),
                 })
                 if state.audit_batcher:
                     state.audit_batcher.log(ActionType.EVALUATION_COMPLETED, {
@@ -768,7 +786,7 @@ async def _cross_agent_challenges(state: AgentState):
 
             # ADAPTIVE: Shorter interval if urgent, normal otherwise
             if urgent:
-                await asyncio.sleep(60)  # Quick follow-up when triggered
+                await asyncio.sleep(180)  # 3-min follow-up (rate-limited by cooldowns)
             else:
                 await asyncio.sleep(CROSS_AGENT_CHALLENGE_INTERVAL)
 
@@ -854,11 +872,13 @@ async def _pay_peer(state: AgentState, peer_pubkey_str: str, lamports: int, reas
 # Adaptive behavior engine
 # ---------------------------------------------------------------------------
 def _get_weakest_domain(state: AgentState) -> Optional[str]:
-    """Find the domain with the lowest average score."""
-    if not state.domain_scores:
+    """Find the domain with the lowest average SELF-evaluation score."""
+    # Prefer self scores (own performance) over peer scores (observed peer quality)
+    source = state.self_domain_scores if state.self_domain_scores else state.domain_scores
+    if not source:
         return None
     avg_scores = {}
-    for domain, scores in state.domain_scores.items():
+    for domain, scores in source.items():
         if scores:
             avg_scores[domain] = sum(scores[-5:]) / len(scores[-5:])  # Last 5 scores
     if not avg_scores:
@@ -866,33 +886,95 @@ def _get_weakest_domain(state: AgentState) -> Optional[str]:
     return min(avg_scores, key=avg_scores.get)
 
 
+URGENT_COOLDOWN_SECONDS = 600  # 10-minute cooldown per trigger category
+MAX_URGENT_PER_HOUR = 8  # Max urgent challenges per agent per hour
+
+
 def _should_challenge_urgently(state: AgentState) -> tuple[bool, str]:
     """
     Determine if an urgent challenge should be triggered (adaptive behavior).
-    Returns (should_trigger, reason).
+    Returns (should_trigger, reason_with_reasoning).
+
+    Rate-limited: each trigger category has a 10-minute cooldown, and there's
+    a global budget of MAX_URGENT_PER_HOUR urgent challenges per hour.
     """
+    now = time.monotonic()
+
+    # Reset hourly budget if needed
+    if now - state._hourly_challenge_reset_ts >= 3600:
+        state._hourly_challenge_count = 0
+        state._hourly_challenge_reset_ts = now
+
+    # Check hourly budget
+    if state._hourly_challenge_count >= MAX_URGENT_PER_HOUR:
+        return False, ""
+
+    def _check_cooldown(category: str) -> bool:
+        """Return True if this category is off cooldown."""
+        last_fired = state._urgent_cooldowns.get(category, 0.0)
+        return (now - last_fired) >= URGENT_COOLDOWN_SECONDS
+
+    def _fire_trigger(category: str, reason: str) -> tuple[bool, str]:
+        """Mark trigger as fired and consume budget."""
+        state._urgent_cooldowns[category] = now
+        state._hourly_challenge_count += 1
+        return True, reason
+
     # Trigger 1: Reputation dropped significantly
     current_rep = state.agent_info.get("reputation_score", 5000) if state.agent_info else 5000
-    if state.last_reputation - current_rep >= 200:
-        return True, f"reputation_drop:{state.last_reputation}->{current_rep}"
+    if state.last_reputation - current_rep >= 200 and _check_cooldown("reputation_drop"):
+        reason = (
+            f"reputation_drop:{state.last_reputation}->{current_rep} | "
+            f"Reasoning: Reputation fell by {state.last_reputation - current_rep} points. "
+            f"Initiating challenge to demonstrate competence and recover standing."
+        )
+        return _fire_trigger("reputation_drop", reason)
 
     # Trigger 2: New peer came online that we haven't challenged yet
-    challenged_peers = set(c.get("target_agent", "") for c in state.cross_agent_challenges[-20:])
-    for peer_info in state.peer_registry.values():
-        if peer_info.get("status") == "online" and peer_info.get("name") not in challenged_peers:
-            return True, f"new_peer:{peer_info.get('name', 'unknown')}"
+    if _check_cooldown("new_peer"):
+        challenged_peers = set(c.get("target_agent", "") for c in state.cross_agent_challenges[-20:])
+        for peer_info in state.peer_registry.values():
+            if peer_info.get("status") == "online" and peer_info.get("name") not in challenged_peers:
+                peer_name = peer_info.get("name", "unknown")
+                reason = (
+                    f"new_peer:{peer_name} | "
+                    f"Reasoning: Discovered new peer '{peer_name}' on network. "
+                    f"Probing capabilities through domain challenge for network intelligence."
+                )
+                return _fire_trigger("new_peer", reason)
 
-    # Trigger 3: A domain score is below 50% (need improvement)
-    for domain, scores in state.domain_scores.items():
-        if scores and scores[-1] < 50:
-            return True, f"low_domain_score:{domain}={scores[-1]:.0f}%"
+    # Trigger 3: Own domain score below 40% (use SELF scores, not peer scores)
+    # Only trigger if we have enough self-eval data to be meaningful
+    for domain, scores in state.self_domain_scores.items():
+        category = f"low_self_score:{domain}"
+        if scores and len(scores) >= 2 and scores[-1] < 40 and _check_cooldown(category):
+            reason = (
+                f"low_self_score:{domain}={scores[-1]:.0f}% | "
+                f"Reasoning: Self-evaluation in {domain} at {scores[-1]:.0f}% (below 40% threshold). "
+                f"Targeting {domain} questions to peers for comparative learning. "
+                f"Trend: {_score_trend(scores)}"
+            )
+            return _fire_trigger(category, reason)
 
     return False, ""
 
 
+def _score_trend(scores: list) -> str:
+    """Describe the trend of recent scores."""
+    if len(scores) < 2:
+        return "insufficient data"
+    recent = scores[-3:] if len(scores) >= 3 else scores
+    if recent[-1] > recent[0] + 5:
+        return f"improving ({recent[0]:.0f}% -> {recent[-1]:.0f}%)"
+    elif recent[-1] < recent[0] - 5:
+        return f"declining ({recent[0]:.0f}% -> {recent[-1]:.0f}%)"
+    return f"stable (~{recent[-1]:.0f}%)"
+
+
 def _get_adaptive_difficulty(state: AgentState, domain: str) -> str:
-    """Choose difficulty based on past performance in this domain."""
-    scores = state.domain_scores.get(domain, [])
+    """Choose difficulty based on own past performance in this domain."""
+    # Prefer self-eval scores; fall back to peer-observed scores
+    scores = state.self_domain_scores.get(domain) or state.domain_scores.get(domain, [])
     if not scores:
         return "medium"
     avg = sum(scores[-3:]) / len(scores[-3:])
@@ -1686,10 +1768,16 @@ def create_agent_app(
                 "recent_transactions": state.economic_transactions[-5:],
             },
             "adaptive_behavior": {
-                "description": "Agents adapt based on performance, not fixed schedules",
+                "description": "Agents adapt strategy based on self-evaluation with rate-limited triggers and reasoning",
                 "total_adaptive_triggers": len(state.adaptive_triggers),
-                "domain_scores": {d: round(sum(s[-3:])/len(s[-3:]), 1) if s else 0 for d, s in state.domain_scores.items()},
+                "self_domain_scores": {d: round(sum(s[-3:])/len(s[-3:]), 1) if s else 0 for d, s in state.self_domain_scores.items()},
+                "peer_observed_scores": {d: round(sum(s[-3:])/len(s[-3:]), 1) if s else 0 for d, s in state.domain_scores.items()},
                 "weakest_domain": _get_weakest_domain(state),
+                "challenge_budget": {
+                    "used_this_hour": state._hourly_challenge_count,
+                    "max_per_hour": MAX_URGENT_PER_HOUR,
+                    "cooldown_per_category": f"{URGENT_COOLDOWN_SECONDS}s",
+                },
                 "recent_triggers": state.adaptive_triggers[-5:],
             },
             "defi_toolkit": {
@@ -1814,26 +1902,45 @@ def create_agent_app(
         """Adaptive behavior status — proof agent makes strategic decisions."""
         return {
             "agent_name": name,
-            "description": "Agent adapts its behavior based on performance, not fixed schedules",
-            "domain_performance": {
+            "description": "Agent adapts strategy based on self-evaluation performance with rate-limited triggers",
+            "self_performance": {
                 d: {
                     "avg_score": round(sum(s[-5:])/len(s[-5:]), 1) if s else 0,
-                    "trend": "improving" if len(s) >= 2 and s[-1] > s[-2] else "declining" if len(s) >= 2 and s[-1] < s[-2] else "stable",
+                    "trend": _score_trend(s),
                     "total_evaluations": len(s),
                     "adaptive_difficulty": _get_adaptive_difficulty(state, d),
+                }
+                for d, s in state.self_domain_scores.items()
+            } if state.self_domain_scores else {},
+            "peer_observed_quality": {
+                d: {
+                    "avg_score": round(sum(s[-5:])/len(s[-5:]), 1) if s else 0,
+                    "total_observations": len(s),
                 }
                 for d, s in state.domain_scores.items()
             },
             "weakest_domain": _get_weakest_domain(state),
+            "rate_limiting": {
+                "cooldown_seconds": URGENT_COOLDOWN_SECONDS,
+                "max_urgent_per_hour": MAX_URGENT_PER_HOUR,
+                "urgent_challenges_this_hour": state._hourly_challenge_count,
+                "budget_remaining": MAX_URGENT_PER_HOUR - state._hourly_challenge_count,
+                "active_cooldowns": {
+                    cat: f"{URGENT_COOLDOWN_SECONDS - (time.monotonic() - ts):.0f}s remaining"
+                    for cat, ts in state._urgent_cooldowns.items()
+                    if time.monotonic() - ts < URGENT_COOLDOWN_SECONDS
+                },
+            },
             "adaptive_triggers": {
                 "total": len(state.adaptive_triggers),
                 "recent": state.adaptive_triggers[-10:],
             },
             "behavior_modes": {
-                "reputation_drop_detection": "Active — triggers immediate challenge if reputation drops >=200 points",
-                "new_peer_detection": "Active — challenges new peers immediately upon discovery",
-                "weak_domain_focus": "Active — prioritizes questions from weakest domain for self-improvement",
-                "difficulty_scaling": "Active — increases difficulty when scoring >85%, decreases below 60%",
+                "reputation_drop_detection": "Active — triggers if reputation drops >=200 points (10-min cooldown)",
+                "new_peer_detection": "Active — probes new peers upon discovery (10-min cooldown)",
+                "weak_domain_focus": "Active — targets weakest self-eval domain for improvement (10-min cooldown per domain)",
+                "difficulty_scaling": "Active — auto-adjusts question difficulty based on self-eval trends",
+                "challenge_budget": f"Active — max {MAX_URGENT_PER_HOUR} urgent challenges/hour, {URGENT_COOLDOWN_SECONDS}s cooldown per category",
             },
         }
 
@@ -2104,6 +2211,8 @@ async def network_overview():
             "adaptive": {
                 "triggers": len(st.adaptive_triggers),
                 "weakest_domain": _get_weakest_domain(st),
+                "budget_used": st._hourly_challenge_count,
+                "budget_max": MAX_URGENT_PER_HOUR,
             },
         })
 
