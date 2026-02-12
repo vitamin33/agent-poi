@@ -55,9 +55,13 @@ MIN_BALANCE_LAMPORTS = 50_000_000       # 0.05 SOL - minimum balance to maintain
 # LLM Judge config (shared across agents)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 LLM_JUDGE_ENABLED = os.getenv("LLM_JUDGE_ENABLED", "true").lower() in ("true", "1", "yes")
 LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "claude-haiku-4-5-20251001")
 LLM_JUDGE_PROVIDER = os.getenv("LLM_JUDGE_PROVIDER", "anthropic")
+# Answer generation: prefer Groq (free) over Anthropic for cost savings
+ANSWER_PROVIDER = os.getenv("ANSWER_PROVIDER", "groq" if GROQ_API_KEY else "anthropic")
+ANSWER_MODEL = os.getenv("ANSWER_MODEL", "llama-3.3-70b-versatile" if GROQ_API_KEY else "claude-haiku-4-5-20251001")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1060,24 +1064,40 @@ def create_agent_app(
         logger.info(f"[{slug}] Starting agent: {name} (personality={personality})")
 
         # Initialize LLM instances
-        # 1. Answer LLM: uses agent's OWN model for unique response generation
-        # 2. Judge LLM: uses Sonnet for FAIR scoring across all agents
-        _api_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
+        # 1. Answer LLM: per-agent model (Groq free tier preferred)
+        # 2. Judge LLM: Anthropic for consistent, fair scoring across all agents
+        _agent_answer_provider = cfg.get("answer_provider", ANSWER_PROVIDER)
+        _agent_answer_model = cfg.get("answer_model", ANSWER_MODEL)
+
+        # Pick the right API key for the answer provider
+        _answer_key_map = {"groq": GROQ_API_KEY, "anthropic": ANTHROPIC_API_KEY, "openai": OPENAI_API_KEY}
+        _answer_key = _answer_key_map.get(_agent_answer_provider) or ANTHROPIC_API_KEY or OPENAI_API_KEY or None
+        # Fallback to Anthropic if Groq key not available
+        if _agent_answer_provider == "groq" and not GROQ_API_KEY:
+            _agent_answer_provider = "anthropic"
+            _agent_answer_model = state.model_name
+            _answer_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
+
         answer_llm = LLMJudge(
-            api_key=_api_key,
-            model=state.model_name,
+            api_key=_answer_key,
+            model=_agent_answer_model,
             enabled=LLM_JUDGE_ENABLED,
-            provider=state.model_provider,
+            provider=_agent_answer_provider,
         )
+        _judge_key = ANTHROPIC_API_KEY or OPENAI_API_KEY or None
         state.llm_judge = LLMJudge(
-            api_key=_api_key,
+            api_key=_judge_key,
             model=LLM_JUDGE_MODEL,
             enabled=LLM_JUDGE_ENABLED,
             provider=LLM_JUDGE_PROVIDER,
         )
-        answer_mode = f"{state.model_provider}/{state.model_name}" if answer_llm.is_llm_available else "fuzzy"
+        answer_mode = f"{_agent_answer_provider}/{_agent_answer_model}" if answer_llm.is_llm_available else "fuzzy"
         judge_mode = f"{LLM_JUDGE_PROVIDER}/{LLM_JUDGE_MODEL}" if state.llm_judge.is_llm_available else "fuzzy"
         logger.info(f"[{slug}] Answer LLM: {answer_mode} | Judge LLM: {judge_mode}")
+
+        # Update state to reflect actual answer model (shown in API responses)
+        state.model_provider = _agent_answer_provider
+        state.model_name = _agent_answer_model
 
         # Challenge handler uses agent-specific model for answer generation
         state.challenge_handler = ChallengeHandler(
@@ -1837,24 +1857,34 @@ AGENT_CONFIGS = [
         "slug": "alpha",
         "personality": "defi",
         "capabilities": "defi-analysis,yield-farming,amm-math,cross-agent-discovery,agentipy-defi",
+        # Answer model: Groq Llama 3.3 70B (best quality, free)
+        # Judge: Anthropic (shared, fair scoring)
         "model_provider": "anthropic",
         "model_name": "claude-haiku-4-5-20251001",
+        "answer_provider": "groq",
+        "answer_model": "llama-3.3-70b-versatile",
     },
     {
         "name": "PoI-Beta",
         "slug": "beta",
         "personality": "security",
         "capabilities": "security-audit,vulnerability-scan,threat-detection,cross-agent-discovery,agentipy-defi",
+        # Answer model: Groq Mixtral (different architecture, good reasoning)
         "model_provider": "anthropic",
         "model_name": "claude-haiku-4-5-20251001",
+        "answer_provider": "groq",
+        "answer_model": "mixtral-8x7b-32768",
     },
     {
         "name": "PoI-Gamma",
         "slug": "gamma",
         "personality": "solana",
         "capabilities": "solana-dev,pda-analysis,anchor-expert,cross-agent-discovery,agentipy-defi",
+        # Answer model: Groq Gemma 2 (Google architecture, diverse eval)
         "model_provider": "anthropic",
-        "model_name": "claude-sonnet-4-5-20250929",
+        "model_name": "claude-haiku-4-5-20251001",
+        "answer_provider": "groq",
+        "answer_model": "gemma2-9b-it",
     },
 ]
 
@@ -1924,7 +1954,7 @@ for cfg in AGENT_CONFIGS:
         wallet_path=wallet,
         peers=peers,
         model_provider=cfg.get("model_provider", "anthropic"),
-        model_name=cfg.get("model_name", "claude-haiku-4-5"),
+        model_name=cfg.get("model_name", "claude-haiku-4-5-20251001"),
     )
     all_states.append(state)
     gateway.mount(f"/{cfg['slug']}", sub_app)

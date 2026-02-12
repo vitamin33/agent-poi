@@ -198,6 +198,21 @@ class ChallengeHandler:
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                 }
+            elif self.llm_judge.provider == "groq":
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {self.llm_judge.api_key}",
+                    "Content-Type": "application/json",
+                }
+                body = {
+                    "model": self.llm_judge.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 200,
+                }
             else:  # openai
                 url = "https://api.openai.com/v1/chat/completions"
                 headers = {

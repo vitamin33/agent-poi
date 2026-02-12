@@ -247,9 +247,14 @@ class LLMJudge:
                     "temperature": 0.1,
                 },
             )
-        else:  # openai
+        else:  # openai / groq (OpenAI-compatible)
+            base_url = (
+                "https://api.groq.com/openai/v1/chat/completions"
+                if self.provider == "groq"
+                else "https://api.openai.com/v1/chat/completions"
+            )
             return (
-                "https://api.openai.com/v1/chat/completions",
+                base_url,
                 {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -269,7 +274,7 @@ class LLMJudge:
         """Extract text content from API response based on provider."""
         if self.provider == "anthropic":
             return data["content"][0]["text"]
-        else:  # openai
+        else:  # openai / groq
             return data["choices"][0]["message"]["content"]
 
     def _judge_with_llm(self, question: str, expected: str, answer: str) -> Optional[JudgeResult]:
