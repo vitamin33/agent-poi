@@ -195,9 +195,12 @@ class LLMJudge:
         """Build the judge prompt."""
         return (
             "You are a judge evaluating an AI agent's answer to a knowledge question. "
-            "Score the answer from 0 to 100 based on correctness and completeness.\n\n"
+            "Score the answer from 0 to 100 based primarily on CORRECTNESS of the core concepts. "
+            "A concise but correct answer should score 70-85. "
+            "Only deduct heavily for factual errors or missing critical information. "
+            "Do NOT penalize for brevity or different phrasing.\n\n"
             f"Question: {question}\n"
-            f"Expected answer: {expected}\n"
+            f"Reference answer: {expected}\n"
             f"Agent's answer: {answer}\n\n"
             "Respond with ONLY valid JSON in this exact format:\n"
             '{"score": <0-100>, "explanation": "<brief 1-sentence explanation>"}\n'

@@ -177,11 +177,12 @@ class ChallengeHandler:
             system_prompt = (
                 f"{personality_context.get(self.personality, personality_context['general'])} "
                 f"Your name is {self.model_name}. "
-                "Answer the question concisely but accurately in 1-3 sentences. "
-                "Be specific and demonstrate domain expertise."
+                "Answer the question accurately and completely in 2-4 sentences. "
+                "Include specific details, formulas, or examples where relevant. "
+                "Be precise and demonstrate deep domain expertise."
             )
 
-            prompt = f"Question: {question}\n\nProvide a concise, expert answer."
+            prompt = f"Question: {question}\n\nProvide a thorough, expert answer with specific details."
 
             # Reuse LLMJudge's API config
             if self.llm_judge.provider == "anthropic":
@@ -193,7 +194,7 @@ class ChallengeHandler:
                 }
                 body = {
                     "model": self.llm_judge.model,
-                    "max_tokens": 200,
+                    "max_tokens": 400,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
@@ -211,7 +212,7 @@ class ChallengeHandler:
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.3,
-                    "max_tokens": 200,
+                    "max_tokens": 400,
                 }
             else:  # openai
                 url = "https://api.openai.com/v1/chat/completions"
@@ -226,7 +227,7 @@ class ChallengeHandler:
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.3,
-                    "max_tokens": 200,
+                    "max_tokens": 400,
                 }
 
             with httpx.Client(timeout=15.0) as http:

@@ -447,7 +447,8 @@ class SLMEvaluator:
 
         for q in questions:
             agent_answer = agent_answers.get(q.id, "").lower().strip()
-            expected = q.expected_answer.lower().strip()
+            # Use detailed reference_answer when available (better for LLM judge)
+            expected = (q.reference_answer or q.expected_answer).lower().strip()
 
             # Determine tier
             if q.difficulty <= 2:
