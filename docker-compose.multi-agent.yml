@@ -28,6 +28,7 @@ services:
       - ./agent/.env
     volumes:
       - ./agent/wallets:/app/wallets:ro
+      - agent-state:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:10000/health')"]
       interval: 30s
@@ -37,6 +38,9 @@ services:
     restart: unless-stopped
     networks:
       - poi-network
+
+volumes:
+  agent-state:
 
 networks:
   poi-network:

@@ -89,6 +89,10 @@ GATEWAY_PORT = int(os.getenv("PORT", os.getenv("API_PORT", "10000")))
 GATEWAY_HOST = os.getenv("API_HOST", "0.0.0.0")
 PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", f"http://localhost:{GATEWAY_PORT}")
 
+# Persistent state directory (use /data on Render with persistent disk, fallback to local)
+STATE_DIR = Path(os.getenv("STATE_DIR", "/data" if os.path.isdir("/data") else "agent_state"))
+AUDIT_FLUSH_INTERVAL = 300  # seconds
+
 
 # ---------------------------------------------------------------------------
 # Pydantic models (same as main.py)
@@ -196,6 +200,71 @@ def _log_activity(state: AgentState, action: str, status: str, details: dict = N
         state.activity_log.pop(0)
     logger.info(f"[{state.slug}][{activity['hash']}] {action}: {status}")
     return activity
+
+
+# ---------------------------------------------------------------------------
+# State persistence (survive redeploys)
+# ---------------------------------------------------------------------------
+def save_state(state: AgentState) -> None:
+    """Save agent state to JSON file for persistence across redeploys."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = STATE_DIR / f"{state.slug}_state.json"
+    data = {
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "name": state.name,
+        "slug": state.slug,
+        "activity_log": state.activity_log[-200:],
+        "evaluation_history": state.evaluation_history[-50:],
+        "certification_history": state.certification_history[-20:],
+        "a2a_interactions": state.a2a_interactions[-100:],
+        "cross_agent_challenges": state.cross_agent_challenges[-50:],
+        "economic_transactions": state.economic_transactions[-200:],
+        "total_sol_sent": state.total_sol_sent,
+        "total_sol_received": state.total_sol_received,
+        "domain_scores": state.domain_scores,
+        "last_reputation": state.last_reputation,
+        "adaptive_triggers": state.adaptive_triggers[-50:],
+        "audit_batches": [
+            {k: v for k, v in b.items() if k != "entries"}
+            for b in (state.audit_batcher.flushed_batches if state.audit_batcher else [])
+        ],
+    }
+    tmp = filepath.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    tmp.rename(filepath)
+    logger.debug(f"[{state.slug}] State saved to {filepath}")
+
+
+def load_state(state: AgentState) -> bool:
+    """Load previously saved state. Returns True if state was restored."""
+    filepath = STATE_DIR / f"{state.slug}_state.json"
+    if not filepath.exists():
+        return False
+    try:
+        with open(filepath) as f:
+            data = json.load(f)
+        state.activity_log = data.get("activity_log", [])
+        state.evaluation_history = data.get("evaluation_history", [])
+        state.certification_history = data.get("certification_history", [])
+        state.a2a_interactions = data.get("a2a_interactions", [])
+        state.cross_agent_challenges = data.get("cross_agent_challenges", [])
+        state.economic_transactions = data.get("economic_transactions", [])
+        state.total_sol_sent = data.get("total_sol_sent", 0)
+        state.total_sol_received = data.get("total_sol_received", 0)
+        state.domain_scores = data.get("domain_scores", {})
+        state.last_reputation = data.get("last_reputation", 5000)
+        state.adaptive_triggers = data.get("adaptive_triggers", [])
+        saved_at = data.get("saved_at", "unknown")
+        logger.info(
+            f"[{state.slug}] State restored from {saved_at} "
+            f"({len(state.a2a_interactions)} interactions, "
+            f"{len(state.economic_transactions)} txs)"
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"[{state.slug}] Failed to load state: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -697,9 +766,6 @@ async def _cross_agent_challenges(state: AgentState):
             await asyncio.sleep(60)
 
 
-AUDIT_FLUSH_INTERVAL = 300  # 5 minutes
-
-
 # ---------------------------------------------------------------------------
 # Economic transaction helper
 # ---------------------------------------------------------------------------
@@ -844,8 +910,11 @@ async def _flush_audit(state: AgentState):
                         "merkle_root": batch["merkle_root"][:16] + "...",
                         "tx": batch.get("tx_signature", "")[:16] + "..." if batch.get("tx_signature") else "local_only",
                     })
+            # Save state to disk after each flush cycle
+            save_state(state)
             await asyncio.sleep(AUDIT_FLUSH_INTERVAL)
         except asyncio.CancelledError:
+            save_state(state)  # Save on shutdown too
             break
         except Exception as e:
             _log_activity(state, "audit_flush", "error", {"error": str(e)[:100]})
@@ -1068,6 +1137,13 @@ def create_agent_app(
         except Exception as e:
             logger.warning(f"[{slug}] AgentiPy DeFi toolkit init error: {e}")
             state.defi_toolkit = None
+
+        # Restore persisted state from previous run (survives redeploys)
+        if load_state(state):
+            _log_activity(state, "state_restored", "success", {
+                "interactions": len(state.a2a_interactions),
+                "transactions": len(state.economic_transactions),
+            })
 
         # Background tasks
         state.tasks.append(asyncio.create_task(_poll_challenges(state)))
