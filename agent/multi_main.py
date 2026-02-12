@@ -831,6 +831,11 @@ async def _flush_audit(state: AgentState):
     while True:
         try:
             if state.audit_batcher:
+                # First, retry any previously failed batches (e.g. from low balance)
+                retried = await state.audit_batcher.retry_failed_batches()
+                if retried > 0:
+                    logger.info(f"[{state.slug}] Retried {retried} failed Merkle batches")
+
                 batch = await state.audit_batcher.flush(force=True)
                 if batch:
                     _log_activity(state, "audit_flush", "flushed", {

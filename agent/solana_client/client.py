@@ -101,6 +101,11 @@ class AgentRegistryClient:
         resp = await self.client.get_balance(self.keypair.pubkey())
         return resp.value
 
+    async def request_airdrop(self, lamports: int = 1_000_000_000) -> str:
+        """Request devnet airdrop. Only works on devnet/testnet."""
+        resp = await self.client.request_airdrop(self.keypair.pubkey(), lamports)
+        return str(resp.value)
+
     def _get_registry_pda(self) -> tuple[Pubkey, int]:
         """Get the registry PDA"""
         return Pubkey.find_program_address(

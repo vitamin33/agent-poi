@@ -286,6 +286,22 @@ class AuditBatcher:
         tx_signature = None
         if self.solana_client and self.agent_pda:
             try:
+                # Pre-check balance: each Merkle PDA needs ~0.0016 SOL rent + tx fee
+                MIN_BALANCE_FOR_MERKLE = 2_000_000  # 0.002 SOL
+                balance = await self.solana_client.get_sol_balance()
+                if balance < MIN_BALANCE_FOR_MERKLE:
+                    logger.warning(
+                        f"Low balance ({balance} lamports) for Merkle store, "
+                        f"requesting devnet airdrop..."
+                    )
+                    try:
+                        await self.solana_client.request_airdrop(1_000_000_000)  # 1 SOL
+                        import asyncio
+                        await asyncio.sleep(2)  # Wait for airdrop confirmation
+                        logger.info("Devnet airdrop received for Merkle audit")
+                    except Exception as airdrop_err:
+                        logger.warning(f"Airdrop failed (rate limited?): {airdrop_err}")
+
                 tx_signature = await self._store_root_on_chain(merkle_root, entries_count)
                 batch_data["tx_signature"] = tx_signature
                 logger.info(f"Merkle root stored on-chain: tx={tx_signature}")
@@ -304,6 +320,31 @@ class AuditBatcher:
         self.pending_entries = []
 
         return batch_data
+
+    async def retry_failed_batches(self) -> int:
+        """Retry storing on-chain for batches that previously failed.
+        Returns number of batches successfully stored."""
+        if not self.solana_client or not self.agent_pda:
+            return 0
+
+        retried = 0
+        for batch in self.flushed_batches:
+            if batch.get("tx_signature") is not None:
+                continue  # Already has on-chain tx
+            try:
+                tx_sig = await self._store_root_on_chain(
+                    batch["merkle_root"], batch["entries_count"]
+                )
+                batch["tx_signature"] = tx_sig
+                self._save_batch(batch)  # Update local storage
+                retried += 1
+                logger.info(
+                    f"Retried batch {batch['batch_index']}: tx={tx_sig}"
+                )
+            except Exception as e:
+                logger.debug(f"Retry failed for batch {batch['batch_index']}: {e}")
+                break  # If one fails, likely all will (balance issue)
+        return retried
 
     async def _store_root_on_chain(self, merkle_root: str, entries_count: int) -> str:
         """Store Merkle root on Solana via store_merkle_audit instruction."""
