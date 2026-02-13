@@ -292,22 +292,29 @@ class AuditBatcher:
                 f"root={merkle_root[:16]}..."
             )
             try:
-                # Skip balance pre-check (wallets have >3 SOL, pre-check was causing failures)
-                # Try up to 2 times to store on-chain
-                for attempt in range(2):
+                # Try up to 3 times: on seeds constraint error, invalidate cache and retry
+                for attempt in range(3):
                     try:
-                        logger.info(f"On-chain store attempt {attempt + 1}/2...")
+                        logger.info(f"On-chain store attempt {attempt + 1}/3...")
                         tx_signature = await self._store_root_on_chain(merkle_root, entries_count)
                         batch_data["tx_signature"] = tx_signature
                         batch_data["on_chain"] = True
                         logger.info(f"Merkle root stored on-chain: tx={tx_signature}")
                         break
                     except Exception as e:
+                        error_str = str(e)
                         logger.warning(
                             f"On-chain store attempt {attempt + 1} failed: "
-                            f"{type(e).__name__}: {e}"
+                            f"{type(e).__name__}: {error_str}"
                         )
-                        if attempt == 0:
+                        if "2006" in error_str or "seeds constraint" in error_str.lower():
+                            # Stale batch index cache — invalidate and re-read from chain
+                            logger.info("Seeds constraint error — invalidating batch index cache")
+                            if hasattr(self.solana_client, '_merkle_batch_cache'):
+                                self.solana_client._merkle_batch_cache.pop(self.agent_pda, None)
+                            import asyncio
+                            await asyncio.sleep(3)
+                        elif attempt < 2:
                             import asyncio
                             await asyncio.sleep(2)
                         else:
@@ -368,6 +375,7 @@ class AuditBatcher:
                 )
                 batch["tx_signature"] = tx_sig
                 batch["on_chain"] = True
+                batch.pop("store_error", None)
                 self._save_batch(batch)
                 retried += 1
                 consecutive_failures = 0
@@ -375,17 +383,22 @@ class AuditBatcher:
                     f"Merkle retry OK: batch {batch['batch_index']} -> tx={tx_sig}"
                 )
                 import asyncio
-                await asyncio.sleep(2)  # Rate limit between retries
+                await asyncio.sleep(3)  # Wait for on-chain state to propagate
             except Exception as e:
+                error_str = str(e)
                 consecutive_failures += 1
                 logger.warning(
-                    f"Merkle retry FAILED: batch {batch['batch_index']}: {e}"
+                    f"Merkle retry FAILED: batch {batch['batch_index']}: {error_str}"
                 )
+                # On seeds constraint, invalidate cache so next attempt re-reads from chain
+                if "2006" in error_str or "seeds constraint" in error_str.lower():
+                    if hasattr(self.solana_client, '_merkle_batch_cache'):
+                        self.solana_client._merkle_batch_cache.pop(self.agent_pda, None)
                 if consecutive_failures >= 3:
                     logger.warning("Merkle retry: 3 consecutive failures, stopping")
                     break
                 import asyncio
-                await asyncio.sleep(3)
+                await asyncio.sleep(4)  # Longer wait to let chain state propagate
         return retried
 
     async def _store_root_on_chain(self, merkle_root: str, entries_count: int) -> str:

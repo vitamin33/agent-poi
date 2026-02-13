@@ -63,6 +63,9 @@ class AgentRegistryClient:
 
         self.client: Optional[AsyncClient] = None
         self.program: Optional[Program] = None
+        # Local cache of next Merkle batch index per agent PDA
+        # Avoids stale RPC reads between consecutive store_merkle_audit calls
+        self._merkle_batch_cache: dict[str, int] = {}
 
     async def connect(self):
         """Connect to Solana and initialize the program"""
@@ -720,39 +723,29 @@ class AgentRegistryClient:
         """
         Store a Merkle audit root on-chain.
 
-        This is the efficient audit pattern:
-        - Collect N audit entries off-chain
-        - Compute Merkle root
-        - Store single root on-chain (1 tx instead of N)
-
-        Args:
-            agent_pda: The agent's PDA as string
-            merkle_root: 32-byte Merkle root as list of ints
-            entries_count: Number of entries in this batch
-
-        Returns:
-            Transaction signature
+        Uses local batch index cache to avoid stale RPC reads between
+        consecutive stores (Solana RPC can return cached/stale data).
         """
         agent_pubkey = Pubkey.from_string(agent_pda)
 
-        # Get current batch index from summary (or 0 if first batch)
-        summary = await self.get_merkle_summary(agent_pubkey)
-        batch_index = summary["total_batches"] if summary else 0
+        # Use cached batch index if available, otherwise read from chain
+        if agent_pda in self._merkle_batch_cache:
+            batch_index = self._merkle_batch_cache[agent_pda]
+            logger.info(f"store_merkle_audit: using cached batch_index={batch_index}")
+        else:
+            summary = await self.get_merkle_summary(agent_pubkey)
+            batch_index = summary["total_batches"] if summary else 0
+            logger.info(f"store_merkle_audit: read on-chain batch_index={batch_index}")
 
         summary_pda, _ = self._get_merkle_summary_pda(agent_pubkey)
         root_pda, _ = self._get_merkle_root_pda(agent_pubkey, batch_index)
 
         logger.info(
             f"store_merkle_audit: agent_pda={agent_pda}, "
-            f"owner={self.keypair.pubkey()}, "
-            f"batch_index={batch_index}, "
-            f"summary={'exists' if summary else 'None'}, "
-            f"summary_pda={summary_pda}, "
-            f"root_pda={root_pda}, "
+            f"batch_index={batch_index}, root_pda={root_pda}, "
             f"entries_count={entries_count}"
         )
 
-        # Convert merkle_root list to bytes array
         root_bytes = bytes(merkle_root)
 
         tx = await self.program.rpc["store_merkle_audit"](
@@ -770,6 +763,8 @@ class AgentRegistryClient:
             )
         )
 
+        # On success, cache the next batch index
+        self._merkle_batch_cache[agent_pda] = batch_index + 1
         logger.info(f"Merkle audit root stored: batch={batch_index}, entries={entries_count}, tx={tx}")
         return str(tx)
 
