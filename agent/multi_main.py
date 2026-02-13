@@ -44,8 +44,8 @@ from solana_client import AgentRegistryClient
 # ---------------------------------------------------------------------------
 AGENT_VERSION = "4.2.0-adaptive-counters"
 CHALLENGE_POLL_INTERVAL = 30
-SELF_EVAL_INTERVAL = 600  # 10 min — frequent enough for live adaptation visibility
-CROSS_AGENT_CHALLENGE_INTERVAL = 300
+SELF_EVAL_INTERVAL = 900  # 15 min — balanced between visibility and cost savings
+CROSS_AGENT_CHALLENGE_INTERVAL = 600  # 10 min — halved SOL & AI token spend
 
 # Economic transaction constants (devnet)
 CHALLENGE_FEE_LAMPORTS = 1_000_000      # 0.001 SOL - paid by challenger to target
