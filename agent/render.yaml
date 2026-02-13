@@ -24,7 +24,7 @@ services:
 
       # Shared Solana config
       - key: SOLANA_RPC_URL
-        value: https://api.devnet.solana.com
+        value: https://thrumming-thrumming-pond.solana-devnet.quiknode.pro/d5b2a7acac061e59f4e38a8d69ec8740a8da3f47/
       - key: PROGRAM_ID
         value: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
 

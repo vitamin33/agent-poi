@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir --no-deps agentipy>=2.1.0
 COPY . .
 
 # Environment variables (override in deployment)
-ENV SOLANA_RPC_URL=https://api.devnet.solana.com
+ENV SOLANA_RPC_URL=https://thrumming-thrumming-pond.solana-devnet.quiknode.pro/d5b2a7acac061e59f4e38a8d69ec8740a8da3f47/
 ENV PROGRAM_ID=EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38
 ENV AGENT_NAME="PoI Demo Agent"
 ENV AGENT_CAPABILITIES="challenge-response,slm-evaluation,cross-agent-discovery"

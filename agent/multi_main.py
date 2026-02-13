@@ -72,7 +72,10 @@ logging.basicConfig(
 logger = logging.getLogger("multi_agent")
 
 # Solana / program config (shared across agents)
-SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+SOLANA_RPC_URL = os.getenv(
+    "SOLANA_RPC_URL",
+    "https://thrumming-thrumming-pond.solana-devnet.quiknode.pro/d5b2a7acac061e59f4e38a8d69ec8740a8da3f47/"
+)
 PROGRAM_ID = os.getenv("PROGRAM_ID", "EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38")
 
 # IDL path resolution (same logic as config.py)
