@@ -1040,12 +1040,16 @@ async def _flush_audit(state: AgentState):
 
                 batch = await state.audit_batcher.flush(force=True)
                 if batch:
-                    _log_activity(state, "audit_flush", "flushed", {
+                    flush_detail = {
                         "batch_index": batch["batch_index"],
                         "entries": batch["entries_count"],
                         "merkle_root": batch["merkle_root"][:16] + "...",
                         "tx": batch.get("tx_signature", "")[:16] + "..." if batch.get("tx_signature") else "local_only",
-                    })
+                    }
+                    if batch.get("store_error"):
+                        flush_detail["error"] = batch["store_error"][:200]
+                    _log_activity(state, "audit_flush", "flushed", flush_detail)
+                    logger.info(f"[{state.slug}] Flush result: on_chain={batch.get('on_chain')}, tx={batch.get('tx_signature', 'None')[:20]}, error={batch.get('store_error', 'None')[:100]}")
             # Save state to disk after each flush cycle
             save_state(state)
             await asyncio.sleep(AUDIT_FLUSH_INTERVAL)
@@ -1611,6 +1615,28 @@ def create_agent_app(
                 info["error"] = repr(e)[:500]
         return info
 
+    @sub_app.post("/merkle-flush-test")
+    async def merkle_flush_test():
+        """Diagnostic: add a test entry and force-flush to test full flush() path."""
+        if not state.audit_batcher:
+            return {"error": "no audit batcher"}
+        # Log a test entry
+        entry = state.audit_batcher.log(ActionType.EVALUATION_COMPLETED, {
+            "test": True, "timestamp": time.time(), "purpose": "flush_diagnostic"
+        })
+        # Force flush
+        batch = await state.audit_batcher.flush(force=True)
+        if batch:
+            return {
+                "status": "flushed",
+                "on_chain": batch.get("on_chain", False),
+                "tx_signature": batch.get("tx_signature"),
+                "store_error": batch.get("store_error"),
+                "batch_index": batch["batch_index"],
+                "entries_count": batch["entries_count"],
+            }
+        return {"status": "no_batch_returned"}
+
     @sub_app.get("/evaluate/domains")
     async def list_domains():
         return {
@@ -1788,6 +1814,7 @@ def create_agent_app(
             "timestamp": b["timestamp"],
             "tx_signature": b.get("tx_signature"),
             "on_chain": b.get("tx_signature") is not None,
+            "store_error": b.get("store_error"),
         } for b in recent_batches]
         return {
             "agent_name": name,

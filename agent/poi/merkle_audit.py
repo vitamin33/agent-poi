@@ -286,43 +286,44 @@ class AuditBatcher:
         # Store Merkle root on-chain if client is available
         tx_signature = None
         if self.solana_client and self.agent_pda:
+            logger.info(
+                f"Attempting on-chain store: agent_pda={self.agent_pda}, "
+                f"entries_count={entries_count} (type={type(entries_count).__name__}), "
+                f"root={merkle_root[:16]}..."
+            )
             try:
-                # Pre-check balance: each Merkle PDA needs ~0.0016 SOL rent + tx fee
-                MIN_BALANCE_FOR_MERKLE = 2_000_000  # 0.002 SOL
-                balance = await self.solana_client.get_sol_balance()
-                if balance < MIN_BALANCE_FOR_MERKLE:
-                    logger.warning(
-                        f"Low balance ({balance} lamports) for Merkle store, "
-                        f"requesting devnet airdrop..."
-                    )
-                    try:
-                        await self.solana_client.request_airdrop(1_000_000_000)  # 1 SOL
-                        import asyncio
-                        await asyncio.sleep(2)  # Wait for airdrop confirmation
-                        logger.info("Devnet airdrop received for Merkle audit")
-                    except Exception as airdrop_err:
-                        logger.warning(f"Airdrop failed (rate limited?): {airdrop_err}")
-
+                # Skip balance pre-check (wallets have >3 SOL, pre-check was causing failures)
                 # Try up to 2 times to store on-chain
                 for attempt in range(2):
                     try:
+                        logger.info(f"On-chain store attempt {attempt + 1}/2...")
                         tx_signature = await self._store_root_on_chain(merkle_root, entries_count)
                         batch_data["tx_signature"] = tx_signature
                         batch_data["on_chain"] = True
                         logger.info(f"Merkle root stored on-chain: tx={tx_signature}")
                         break
                     except Exception as e:
+                        logger.warning(
+                            f"On-chain store attempt {attempt + 1} failed: "
+                            f"{type(e).__name__}: {e}"
+                        )
                         if attempt == 0:
-                            logger.warning(f"On-chain store attempt 1 failed, retrying: {e}")
                             import asyncio
                             await asyncio.sleep(2)
                         else:
                             raise
             except Exception as e:
-                logger.error(f"Failed to store root on-chain: {e}")
+                error_msg = f"{type(e).__name__}: {e}"
+                logger.error(f"Failed to store root on-chain (all attempts): {error_msg}")
+                batch_data["store_error"] = error_msg[:500]
                 # Still save locally even if on-chain fails
         else:
-            logger.warning("No Solana client - storing batch locally only")
+            reason = []
+            if not self.solana_client:
+                reason.append("no solana_client")
+            if not self.agent_pda:
+                reason.append("no agent_pda")
+            logger.warning(f"No Solana client - storing batch locally only ({', '.join(reason)})")
 
         # Save batch to local storage
         self._save_batch(batch_data)
