@@ -138,6 +138,9 @@ export function CertificationView() {
   const [certResult, setCertResult] = useState<"success" | "error" | "timeout" | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const COOLDOWN_SEC = 300; // 5-minute cooldown between certifications
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchCertifications = useCallback(async () => {
     try {
@@ -210,6 +213,18 @@ export function CertificationView() {
         clearInterval(elapsedRef.current);
         elapsedRef.current = null;
       }
+      // Start cooldown
+      setCooldownRemaining(COOLDOWN_SEC);
+      cooldownRef.current = setInterval(() => {
+        setCooldownRemaining((prev) => {
+          if (prev <= 1) {
+            if (cooldownRef.current) clearInterval(cooldownRef.current);
+            cooldownRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
   };
 
@@ -255,13 +270,21 @@ export function CertificationView() {
         <div className="flex flex-col items-end gap-1.5">
           <button
             onClick={handleRunCertification}
-            disabled={certifying}
+            disabled={certifying || cooldownRemaining > 0}
             className="btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
           >
             {certifying ? (
               <span className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full border-2 border-t-transparent border-current animate-spin" />
                 Certifying... {elapsedSec}s
+              </span>
+            ) : cooldownRemaining > 0 ? (
+              <span className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-60">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                {Math.floor(cooldownRemaining / 60)}:{(cooldownRemaining % 60).toString().padStart(2, "0")}
               </span>
             ) : (
               "Run Certification"
@@ -304,10 +327,10 @@ export function CertificationView() {
           </p>
           <button
             onClick={handleRunCertification}
-            disabled={certifying}
-            className="btn-primary px-6 py-2.5 rounded-xl text-sm font-semibold"
+            disabled={certifying || cooldownRemaining > 0}
+            className="btn-primary px-6 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
           >
-            {certifying ? "Certifying..." : "Run First Certification"}
+            {certifying ? "Certifying..." : cooldownRemaining > 0 ? `Cooldown ${Math.floor(cooldownRemaining / 60)}:${(cooldownRemaining % 60).toString().padStart(2, "0")}` : "Run First Certification"}
           </button>
         </div>
       )}
