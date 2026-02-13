@@ -279,7 +279,8 @@ class AuditBatcher:
             "entries_count": entries_count,
             "timestamp": int(time.time()),
             "entries": [e.to_dict() for e in self.pending_entries],
-            "tx_signature": None
+            "tx_signature": None,
+            "on_chain": False,
         }
 
         # Store Merkle root on-chain if client is available
@@ -302,9 +303,21 @@ class AuditBatcher:
                     except Exception as airdrop_err:
                         logger.warning(f"Airdrop failed (rate limited?): {airdrop_err}")
 
-                tx_signature = await self._store_root_on_chain(merkle_root, entries_count)
-                batch_data["tx_signature"] = tx_signature
-                logger.info(f"Merkle root stored on-chain: tx={tx_signature}")
+                # Try up to 2 times to store on-chain
+                for attempt in range(2):
+                    try:
+                        tx_signature = await self._store_root_on_chain(merkle_root, entries_count)
+                        batch_data["tx_signature"] = tx_signature
+                        batch_data["on_chain"] = True
+                        logger.info(f"Merkle root stored on-chain: tx={tx_signature}")
+                        break
+                    except Exception as e:
+                        if attempt == 0:
+                            logger.warning(f"On-chain store attempt 1 failed, retrying: {e}")
+                            import asyncio
+                            await asyncio.sleep(2)
+                        else:
+                            raise
             except Exception as e:
                 logger.error(f"Failed to store root on-chain: {e}")
                 # Still save locally even if on-chain fails
@@ -328,6 +341,7 @@ class AuditBatcher:
             return 0
 
         retried = 0
+        consecutive_failures = 0
         for batch in self.flushed_batches:
             if batch.get("tx_signature") is not None:
                 continue  # Already has on-chain tx
@@ -336,14 +350,18 @@ class AuditBatcher:
                     batch["merkle_root"], batch["entries_count"]
                 )
                 batch["tx_signature"] = tx_sig
+                batch["on_chain"] = True
                 self._save_batch(batch)  # Update local storage
                 retried += 1
+                consecutive_failures = 0
                 logger.info(
                     f"Retried batch {batch['batch_index']}: tx={tx_sig}"
                 )
             except Exception as e:
+                consecutive_failures += 1
                 logger.debug(f"Retry failed for batch {batch['batch_index']}: {e}")
-                break  # If one fails, likely all will (balance issue)
+                if consecutive_failures >= 3:
+                    break  # Only stop after 3 consecutive failures
         return retried
 
     async def _store_root_on_chain(self, merkle_root: str, entries_count: int) -> str:

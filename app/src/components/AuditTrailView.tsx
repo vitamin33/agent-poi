@@ -220,13 +220,13 @@ export function AuditTrailView() {
               <div className="divide-y divide-[rgba(0,240,255,0.05)]">
                 {allBatches.map((batch, i) => (
                   <div key={i} className="px-4 py-3 flex items-center gap-3 text-xs">
-                    <span className="w-2 h-2 rounded-full bg-[#10b981]" />
+                    <span className={`w-2 h-2 rounded-full ${batch.tx_signature ? "bg-[#10b981]" : "bg-[#f59e0b]"}`} />
                     <span className="text-[var(--text-secondary)] font-medium w-24 shrink-0">{batch.agent_name}</span>
                     <code className="text-[var(--accent-primary)] font-mono truncate max-w-[160px]">
                       {batch.merkle_root?.substring(0, 16)}...
                     </code>
                     <span className="text-[var(--text-muted)]">{batch.entries_count ?? batch.entry_count} entries</span>
-                    {batch.tx_signature && (
+                    {batch.tx_signature ? (
                       <a
                         href={`https://explorer.solana.com/tx/${batch.tx_signature}?cluster=devnet`}
                         target="_blank"
@@ -235,6 +235,14 @@ export function AuditTrailView() {
                       >
                         View Tx
                       </a>
+                    ) : (
+                      <span className="ml-auto flex items-center gap-1 text-[#f59e0b] shrink-0">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        Queued
+                      </span>
                     )}
                   </div>
                 ))}
