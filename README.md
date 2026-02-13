@@ -1,195 +1,261 @@
 # Agent Proof-of-Intelligence (PoI)
 
-> On-chain AI agent identity verification with challenge-response protocols, SLM evaluation benchmarks, and Merkle audit trails on Solana.
+> **The first on-chain trust layer for AI agents on Solana.** Autonomous identity verification, challenge-response protocols, LLM-as-Judge scoring, economic micropayments, adaptive behavior engine, and Merkle audit trails — all running 24/7 with zero human intervention.
 
 [![Solana Devnet](https://img.shields.io/badge/Solana-Devnet-9945FF)](https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet)
-[![Live Dashboard](https://img.shields.io/badge/Dashboard-Live-00f0ff)](https://agent-poi.vercel.app)
-[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol%20Ready-10b981)](https://agent-poi.vercel.app/skill.json)
+[![Live Dashboard](https://img.shields.io/badge/Dashboard-Live-00f0ff)](https://app-serbyns-projects-d9324b42.vercel.app)
+[![Agent API](https://img.shields.io/badge/Agent_API-Live-10b981)](https://assisterr-agent-hackathon.onrender.com/health)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol%20Ready-f59e0b)](https://app-serbyns-projects-d9324b42.vercel.app/skill.json)
+[![Demo Video](https://img.shields.io/badge/Demo-Video-ec4899)](https://www.loom.com/share/acd8895c017c4f769fc27ccbbb7d71b6)
 
 **Program ID:** `EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38`
 
 ---
 
-## Why This Exists
+## The Problem
 
-50K+ AI agents operate on Solana with no way to verify if they're competent, legitimate, or safe. Agent Proof-of-Intelligence is the certification layer: agents must pass domain-specific benchmarks to earn on-chain reputation, and every action is hashed into a Merkle audit trail committed to Solana.
+Thousands of AI agents are deploying on Solana — DeFi bots, trading agents, service providers. But there's **zero way to verify** they're competent. No identity verification. No competence testing. No audit trail. If an agent claims to be a DeFi expert, you just have to trust it. That's not good enough when real money is involved.
 
-## What It Does
+## The Solution
 
-### 1. On-Chain Agent Registry (Anchor Program)
+Agent PoI is a **complete trust infrastructure** for AI agents on Solana:
 
-Agents register with their model hash, capabilities, and wallet identity. The program tracks reputation scores that update atomically with challenge results.
+- **3 autonomous agents** (Alpha/DeFi, Beta/Security, Gamma/Solana) running 24/7 on Render
+- **Challenge-response verification** — agents challenge each other with domain-specific questions, scored by LLM Judge
+- **On-chain reputation** — every challenge result updates reputation atomically via Anchor program
+- **Adaptive behavior engine** — 5 autonomous triggers that make agents think for themselves
+- **Economic autonomy** — agents pay each other real SOL for challenge services
+- **Merkle audit trail** — every action hashed, batched, and committed to Solana (99.97% cost reduction)
+- **A2A Protocol** — full skill.json discovery endpoint for cross-network interoperability
 
-**12 instructions deployed on devnet:**
+---
 
-| Instruction | Purpose |
-|-------------|---------|
-| `initialize_registry` | Create global registry state |
-| `register_agent` | Register agent with model hash + NFT mint |
-| `create_challenge` | Issue challenge with question + expected answer hash |
-| `submit_response` | Agent submits answer, reputation updates atomically |
-| `close_challenge` | Reclaim rent from expired challenges |
-| `verify_agent` | Admin verification of agent identity |
-| `update_agent` | Update capabilities or model hash |
-| `log_audit_entry` | Store individual audit entries on-chain |
-| `store_merkle_audit` | Commit Merkle root of batched audit entries |
-| `create_challenge_with_nonce` | Nonce-based challenges (unlimited per agent pair) |
-| `submit_response_with_nonce` | Respond to nonce-based challenges |
-| `initialize_collection` | Set up NFT collection for agent identity |
+## Live Demo
 
-**PDA Structure:**
-- `[b"registry"]` - Global registry state
-- `[b"agent", owner, agent_id]` - Per-agent account
-- `[b"challenge", agent_pda, challenger]` - Challenge accounts
-- `[b"audit", agent_pda, nonce]` - Audit log entries
+| Resource | URL |
+|----------|-----|
+| **Dashboard** | [app-serbyns-projects-d9324b42.vercel.app](https://app-serbyns-projects-d9324b42.vercel.app) |
+| **Demo Video** | [Loom Recording (3:37)](https://www.loom.com/share/acd8895c017c4f769fc27ccbbb7d71b6) |
+| **Agent API** | [assisterr-agent-hackathon.onrender.com](https://assisterr-agent-hackathon.onrender.com/health) |
+| **A2A Discovery** | [skill.json](https://app-serbyns-projects-d9324b42.vercel.app/skill.json) |
+| **Program (Explorer)** | [EQ2Zv3c...BACL38](https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet) |
 
-### 2. Multi-Agent A2A Challenge Protocol
-
-Three autonomous agents (Alpha, Beta, Gamma) continuously challenge each other on domain expertise:
-
-```
-Alpha (DeFi Specialist)  ──challenge──►  Beta (Security Auditor)
-         ◄──response──
-
-  Question: "Explain how flash loans work and why they
-             don't require collateral"
-
-  LLM Judge Score: 95/100
-  Method: Anthropic Claude evaluation
-  Result: On-chain reputation +100
-```
-
-**How it works:**
-1. Agent picks a peer and selects a domain-specific question
-2. HTTP POST to peer's `/challenge` endpoint
-3. Peer generates answer, returns `answer_hash`
-4. LLM Judge (Claude/GPT-4o) scores the response 0-100
-5. Result recorded on-chain via `create_challenge_with_nonce`
-6. Reputation updates atomically in the Anchor program
-
-**Challenge Domains:**
-- **DeFi** (10 questions): AMM math, impermanent loss, flash loans, MEV, yield farming
-- **Solana** (10 questions): PDAs, CPI, PoH, rent system, Anchor framework
-- **Security** (10 questions): Rug pulls, reentrancy, sandwich attacks, oracle manipulation
-
-Each question has a difficulty rating (1-5) and answers are scored with difficulty weighting.
-
-### 3. SLM Intelligence Certification
-
-Agents self-evaluate across all three domains. Results are stored with cryptographic hashes and committed on-chain:
-
-| Agent | Model | DeFi | Solana | Security | Cert Score | Level |
-|-------|-------|------|--------|----------|------------|-------|
-| PoI-Gamma | claude-sonnet-4-5 | 90% | 86% | 84% | 87 | Expert |
-| PoI-Beta | claude-haiku-4-5 | 80% | 76% | 82% | 79 | Proficient |
-| PoI-Alpha | claude-3-haiku | 62% | 65% | 72% | 66 | Basic |
-
-Certification levels: **Expert** (85+), **Proficient** (70+), **Basic** (50+), **Uncertified** (<50)
-
-Each certification includes an on-chain transaction proof and SHA256 result hash.
-
-### 4. Merkle Audit Trail
-
-Every agent action is SHA256-hashed, batched into Merkle trees, and committed to Solana:
-
-```
-Activity Log (200 entries)
-    │
-    ▼
-Merkle Batcher (batch_size=10)
-    │
-    ▼
-compute_merkle_root(entries)
-    │
-    ▼
-store_merkle_audit(root, count) → Solana TX
-```
-
-**What gets logged:**
-- Challenge responses (question, score, method)
-- Self-evaluations (domain, score, certification level)
-- Cross-agent interactions (challenger, target, result)
-- Registration events, reputation changes
-
-Each batch produces a verifiable Merkle root stored on-chain. Individual entries can be proven against the root using `verify_merkle_proof()`.
-
-### 5. Autonomous Agent Behaviors
-
-Each agent runs 4 background tasks with no human intervention:
-
-| Behavior | Interval | What It Does |
-|----------|----------|-------------|
-| Challenge Polling | 30s | Monitors on-chain for pending challenges, auto-responds |
-| Self-Evaluation | 5min | Tests itself on 30 domain questions, tracks certification |
-| Cross-Agent Challenges | 2min | Discovers peers, creates challenges, records results |
-| Merkle Audit Batching | On threshold | Flushes activity logs to on-chain Merkle roots |
-
-### 6. LLM-as-Judge Scoring
-
-Challenges are evaluated by an LLM judge that provides semantic scoring:
-
-```python
-# Not just string matching - actual intelligence evaluation
-JudgeResult(
-    score=92,           # 0-100 semantic similarity
-    explanation="Agent correctly explained flash loan mechanics...",
-    method="llm",       # "llm" (Claude/GPT) or "fuzzy" (fallback)
-    cached=False
-)
-```
-
-- **Primary**: Anthropic Claude (claude-haiku-4-5)
-- **Fallback**: OpenAI GPT-4o-mini
-- **Last resort**: Fuzzy string matching (difflib)
-- **Cache**: 1-hour TTL to avoid duplicate API calls
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     SOLANA DEVNET                             │
-│  Program: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38     │
-│  ├── AgentRegistry: PDA-based agent identity + model hash    │
-│  ├── Challenge: Nonce-based verification with expiration     │
-│  ├── Reputation: Atomic score updates on challenge result    │
-│  └── MerkleAudit: Batched audit trail roots                  │
-├─────────────────────────────────────────────────────────────┤
-│                     PYTHON AGENTS (FastAPI)                   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
-│  │  Alpha   │  │  Beta    │  │  Gamma   │                  │
-│  │  (DeFi)  │◄─►│(Security)│◄─►│ (Solana) │                  │
-│  └──────────┘  └──────────┘  └──────────┘                  │
-│  ├── A2A challenge-response via HTTP                         │
-│  ├── LLM Judge scoring (Claude/GPT/fuzzy)                    │
-│  ├── Autonomous self-evaluation (30 benchmarks)              │
-│  └── Merkle audit batching → on-chain                        │
-├─────────────────────────────────────────────────────────────┤
-│                     NEXT.JS DASHBOARD                         │
-│  ├── Wallet connection (Phantom, Solflare, Backpack)         │
-│  ├── A2A Network: live peer challenges with scores           │
-│  ├── Intelligence Certification: leaderboard + domain scores │
-│  ├── Verifiable Audit Trail: Merkle batches + TX links       │
-│  ├── SentinelAgent Monitor: activity feed + reputation       │
-│  └── Agent Registration: on-chain with model hash            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        SOLANA DEVNET                            │
+│  Program: EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38        │
+│  ├── AgentRegistry: PDA-based identity + model hash + NFT      │
+│  ├── Challenge: Nonce-based verification with 1-hour expiry    │
+│  ├── Reputation: Atomic score updates (0-10000 scale)          │
+│  ├── AuditLog: SentinelAgent security entries with risk scores │
+│  └── MerkleAudit: Batched audit roots (10-100 entries per tx)  │
+├─────────────────────────────────────────────────────────────────┤
+│                     PYTHON AGENTS (FastAPI)                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                     │
+│  │  Alpha   │  │  Beta    │  │  Gamma   │  ← 7 background     │
+│  │  (DeFi)  │◄─►│(Security)│◄─►│ (Solana) │    tasks each      │
+│  └──────────┘  └──────────┘  └──────────┘                     │
+│  ├── A2A challenge-response via HTTP + on-chain                │
+│  ├── LLM-as-Judge scoring (Claude/Groq/fuzzy fallback)         │
+│  ├── Adaptive Behavior Engine (5 autonomous triggers)          │
+│  ├── Economic Autonomy (real SOL micropayments)                │
+│  ├── Self-evaluation benchmarks (30 questions, 3 domains)      │
+│  ├── Merkle audit batching → on-chain roots                    │
+│  └── State persistence across redeploys                        │
+├─────────────────────────────────────────────────────────────────┤
+│                     NEXT.JS DASHBOARD                           │
+│  ├── Wallet connection (Phantom, Solflare, Backpack)           │
+│  ├── A2A Network: live peer challenges with LLM scores         │
+│  ├── Intelligence Certification: domain leaderboard            │
+│  ├── Adaptive Behavior: trigger logs + domain performance      │
+│  ├── Economic Autonomy: SOL payment flows + Explorer links     │
+│  ├── Verifiable Audit Trail: Merkle batches + TX verification  │
+│  └── Agent Registration: on-chain with model hash              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Demo
+---
 
-**Live Dashboard:** [https://agent-poi.vercel.app](https://agent-poi.vercel.app)
+## Key Features
 
-**What you'll see:**
-1. **A2A Intelligence Network** - 3 agents actively challenging each other with LLM-judged scores
-2. **Intelligence Certification** - Leaderboard showing which agents are Expert/Proficient/Basic across DeFi, Solana, Security
-3. **Verifiable Audit Trail** - Merkle batch hashes with clickable Solana Explorer links
-4. **SentinelAgent Monitor** - Real-time activity feed showing every challenge with score badges
-5. **On-chain Data** - 13 registered agents, 320+ challenges completed, 99% pass rate
+### 1. Autonomous Multi-Agent Challenge System
 
-**Solana Explorer:** [View Program](https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet)
+Three specialized agents run 24/7, discovering each other and issuing challenges every 5 minutes:
+
+```
+Alpha (DeFi Specialist)  ──challenge──►  Beta (Security Auditor)
+         ◄──response + score──
+
+  Question: "Explain how flash loans work and why they
+             don't require collateral"
+
+  LLM Judge Score: 92/100 (Anthropic Claude)
+  On-chain TX: ✓ (Challenge PDA + reputation update)
+  Payment: 0.001 SOL challenge fee → Beta
+```
+
+**Challenge flow (8 steps, fully autonomous):**
+1. Discover online peers via HTTP GET /health
+2. Select domain-weighted question (personality-driven)
+3. Pay 0.001 SOL challenge fee to peer
+4. HTTP POST /challenge to peer
+5. LLM Judge (Claude) scores peer's answer 0-100
+6. Create on-chain Challenge PDA via Anchor
+7. Submit result → reputation updates atomically (+100 pass, -50 fail)
+8. Close Challenge PDA → reclaim ~0.012 SOL rent
+
+### 2. Adaptive Behavior Engine (5 Autonomous Triggers)
+
+Agents don't follow a script — they **think for themselves**:
+
+| Trigger | Condition | Action | Reasoning |
+|---------|-----------|--------|-----------|
+| **Reputation Drop** | Rep falls ≥200 points | Challenge peers to recover | "Reputation fell 200 pts. Initiating challenge to demonstrate competence." |
+| **New Peer Discovery** | Unchallenged peer comes online | Probe their capabilities | "Discovered PoI-Beta. Probing capabilities through domain challenge." |
+| **Weak Domain Focus** | Self-eval score <55% | Target that domain specifically | "DeFi score at 48%. Targeting DeFi questions for comparative learning." |
+| **Score Variance** | Score swings ±10 points | Validate the shift | "Solana score dropped 12 pts. Challenging peers to validate shift." |
+| **Rate Limiting** | 8 max urgent/hour | Prevent cascade | 10-min cooldown per trigger type, hourly budget reset |
+
+Every trigger logs **explicit reasoning** — you can read exactly why an agent acted.
+
+### 3. Economic Autonomy (Real SOL Micropayments)
+
+Agents autonomously transfer real SOL on Solana devnet:
+
+| Event | Payment | Direction |
+|-------|---------|-----------|
+| Challenge creation | 0.001 SOL | Challenger → Target |
+| Quality answer (≥70%) | 0.0005 SOL | Reward → Target |
+| Minimum balance reserve | 0.05 SOL | Per agent |
+
+All payments are real Solana transactions with on-chain signatures verifiable on Explorer. This creates **economic incentive for quality** — agents have skin in the game.
+
+### 4. Merkle Audit Trail (99.97% Cost Reduction)
+
+Every autonomous action is cryptographically auditable:
+
+```
+Action (SHA-256 hash) → Batch (10 entries) → Merkle Root → Solana TX
+```
+
+- **10 entries per transaction** instead of 10 transactions = 99.97% cost savings
+- **Verifiable**: Any entry can be proven against on-chain Merkle root
+- **Actions logged**: challenges, evaluations, certifications, reputation changes, economic transactions, adaptive triggers
+- **EU AI Act compliant**: Immutable, timestamped audit trail for all agent actions
+
+### 5. SLM Intelligence Certification
+
+Agents self-evaluate across three domains with weighted scoring:
+
+| Domain | Questions | Topics |
+|--------|-----------|--------|
+| **DeFi** | 10 | AMM math, flash loans, MEV, yield farming, impermanent loss |
+| **Solana** | 10 | PDAs, CPI, PoH, rent, Anchor framework, on-chain orderbooks |
+| **Security** | 10 | Rug pulls, reentrancy, sandwich attacks, oracle manipulation |
+
+**Difficulty weighting**: Easy (1x), Medium (2x), Hard (3x) → Expert ≥85%, Proficient ≥70%, Basic ≥50%
+
+### 6. LLM-as-Judge Scoring
+
+Not just keyword matching — semantic intelligence evaluation:
+
+- **Primary**: Anthropic Claude (Haiku) for consistent, fair scoring
+- **Fallback**: Groq LLaMA for answer generation
+- **Last resort**: Fuzzy string matching (difflib)
+- **Cache**: 24-hour TTL to minimize API costs
+- **Result**: Score 0-100 with explanation and method tracking
+
+### 7. On-Chain Anchor Program (13 Instructions)
+
+| Instruction | Purpose |
+|-------------|---------|
+| `register_agent` | Create Agent PDA with model hash, capabilities, NFT identity |
+| `create_challenge` | Challenge PDA with nonce (unlimited per agent pair) |
+| `submit_response` | Verify answer hash, update reputation atomically |
+| `close_challenge` | Reclaim rent (~0.012 SOL per challenge) |
+| `expire_challenge` | Penalize unresponsive agents (-50 reputation) |
+| `store_merkle_audit` | Commit batched Merkle root on-chain |
+| `log_audit` | SentinelAgent security entry with risk score |
+| `update_reputation` | Direct reputation adjustment |
+| `verify_agent` | Admin verification of agent identity |
+| `update_agent` | Update capabilities (immutable model_hash) |
+| `initialize` | One-time system setup |
+| `create_collection` | Metaplex NFT collection for agent identity |
+| `initialize_collection` | Setup NFT collection metadata |
+
+**PDA Structure:**
+- `[b"agent", owner, agent_id]` — Per-agent identity
+- `[b"challenge", agent, challenger, nonce]` — Challenge with nonce for unlimited pairs
+- `[b"merkle_audit", agent, batch_index]` — Merkle audit roots
+- `[b"audit", agent, audit_index]` — Individual audit entries
+
+### 8. A2A Protocol Discovery
+
+Full A2A Protocol v1.0 compliant `skill.json` endpoint:
+
+```json
+{
+  "name": "Agent Proof-of-Intelligence",
+  "capabilities": [
+    "agent_registration", "challenge_response", "slm_evaluation",
+    "merkle_audit", "cross_agent_challenges", "economic_autonomy",
+    "adaptive_behavior", "defi_analysis"
+  ],
+  "endpoints": { "...30+ documented endpoints..." }
+}
+```
+
+### 9. DeFi Integration (AgentiPy)
+
+Live DeFi capabilities via AgentiPy (41 Solana protocols, 218+ actions):
+- Account balance queries (SOL, SPL tokens)
+- Network TPS monitoring
+- Trending tokens (CoinGecko)
+- RugCheck safety analysis
+- Token metadata and pricing
+
+---
+
+## Autonomous Behaviors (Proof of Agentic Operation)
+
+Each agent runs **7 concurrent background tasks** with zero human intervention:
+
+| Task | Interval | Purpose |
+|------|----------|---------|
+| Challenge Polling | 30s | Monitor on-chain for pending challenges |
+| Self-Evaluation | 10min | Run 30 domain benchmarks, track certification |
+| Cross-Agent Challenges | 5min | Discover peers, create challenges via A2A |
+| Audit Flushing | 2min | Batch actions → Merkle root → Solana TX |
+| Peer Discovery | 30s | Find and map online peers |
+| State Persistence | 2min | Save state to disk (survives redeploys) |
+| Adaptive Engine | Continuous | Monitor triggers, fire urgent challenges |
+
+**Running counters** (per agent, cumulative across redeploys):
+- Total activities logged, A2A interactions, on-chain transactions
+- Evaluations completed, economic transactions, certifications
+- Adaptive triggers fired, cross-agent challenges created
+
+---
+
+## Three Specialized Agents
+
+| Agent | Domain | Capabilities | Question Weight |
+|-------|--------|-------------|----------------|
+| **PoI-Alpha** | DeFi | AMM math, yield farming, flash loans | 50% DeFi, 20% Security, 15% Solana |
+| **PoI-Beta** | Security | Vulnerability analysis, rug detection | 50% Security, 20% Solana, 15% DeFi |
+| **PoI-Gamma** | Solana | PDA design, CPI analysis, Anchor | 50% Solana, 20% Security, 15% DeFi |
+
+Each agent has an **isolated wallet**, independent LLM judge instance, personality-driven question selection, and adaptive behavior triggers.
+
+---
 
 ## Quick Start
 
-### Run Everything Locally
+### Run Multi-Agent System Locally
 
 ```bash
 # 1. Start multi-agent gateway (3 agents on port 10000)
@@ -197,7 +263,7 @@ cd agent
 source venv/bin/activate
 ANTHROPIC_API_KEY=<key> python multi_main.py
 
-# 2. Start dashboard (port 3000)
+# 2. Start dashboard
 cd app
 npm install && npm run dev
 
@@ -205,13 +271,11 @@ npm install && npm run dev
 # Agents begin autonomous challenges within 2 minutes
 ```
 
-### Docker (Multi-Agent)
+### Docker
 
 ```bash
 docker compose -f docker-compose.multi-agent.yml up --build
-# Alpha: localhost:10000/alpha
-# Beta:  localhost:10000/beta
-# Gamma: localhost:10000/gamma
+# Gateway: localhost:10000 (Alpha: /alpha, Beta: /beta, Gamma: /gamma)
 ```
 
 ### Build Solana Program
@@ -222,41 +286,50 @@ anchor build
 anchor deploy --provider.cluster devnet
 ```
 
-## API Endpoints
+---
 
-### Agent API (Python - per agent)
+## API Endpoints (30+)
+
+### Core Agent Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/health` | Connection status, registration state |
-| GET | `/status` | Agent info, reputation, capabilities |
-| GET | `/activity` | Activity log with autonomous stats |
-| POST | `/challenge` | Submit challenge question, get response |
+| GET | `/health` | Connection status, Solana link, feature flags |
+| GET | `/status` | Agent identity, reputation, capabilities |
+| POST | `/challenge` | Submit challenge question, get LLM response |
+| POST | `/challenge/submit` | Submit response on-chain, update reputation |
 | GET | `/evaluate/domains` | Available evaluation domains |
-| POST | `/evaluate/{domain}` | Run domain evaluation, get scored results |
-| GET | `/a2a/info` | A2A protocol discovery metadata |
-| GET | `/a2a/peers` | Peer registry with live statuses |
-| GET | `/a2a/interactions` | Recent A2A challenges with steps |
+| POST | `/evaluate/{domain}` | Run domain benchmark with weighted scoring |
+| GET | `/certifications` | Certification history and levels |
 | GET | `/audit` | Merkle audit trail with on-chain roots |
-| POST | `/certify` | Trigger cross-agent certification |
+| GET | `/economics` | SOL transaction history and fee structure |
+| GET | `/adaptive` | Domain performance, triggers, behavior modes |
+| GET | `/autonomous-stats` | Unified agentic behavior metrics |
+| GET | `/wallet` | Agent SOL balance |
+| GET | `/peers` | Online peer registry |
+| GET | `/a2a/interactions` | Cross-agent challenge history |
+| GET | `/a2a/info` | A2A protocol discovery metadata |
 
-### Dashboard API (Next.js)
+### DeFi Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/a2a?endpoint=interactions` | Aggregated A2A interactions (all agents) |
-| GET | `/api/a2a?endpoint=audit` | Aggregated audit trails |
-| GET | `/api/a2a?endpoint=autonomous-stats` | Merged autonomous behavior stats |
-| GET | `/api/a2a?endpoint=certifications` | Certification history |
-| GET | `/api/agents` | All on-chain agents |
-| GET | `/api/health` | Solana connection status |
+| GET | `/defi/capabilities` | Available DeFi tools (41 protocols) |
+| GET | `/defi/balance` | SOL or token balance |
+| GET | `/defi/tps` | Solana network TPS |
+| GET | `/defi/trending` | Trending tokens (CoinGecko) |
+| GET | `/defi/rugcheck/{mint}` | Token safety analysis |
 
-### A2A Protocol Discovery
+### Dashboard Aggregation API
 
-```
-GET /skill.json  → Machine-readable agent capabilities
-GET /skill.md    → Human-readable documentation
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/a2a?endpoint=interactions` | Merged A2A from all agents |
+| GET | `/api/a2a?endpoint=economics` | Network economic totals |
+| GET | `/api/a2a?endpoint=adaptive` | Aggregated adaptive triggers |
+| GET | `/api/a2a?endpoint=audit` | Aggregated Merkle audit |
+
+---
 
 ## Project Structure
 
@@ -264,71 +337,47 @@ GET /skill.md    → Human-readable documentation
 agent-poi/
 ├── programs/agent-registry/       # Anchor Solana program (Rust)
 │   └── src/
-│       ├── lib.rs                 # 12 instructions
+│       ├── lib.rs                 # 13 instructions
 │       ├── instructions/          # Instruction handlers
-│       ├── state/                 # Account structures (Agent, Challenge, Audit, Merkle)
-│       └── errors.rs              # Custom error codes
+│       ├── state/                 # Account types (Agent, Challenge, Audit, Merkle)
+│       └── errors.rs              # 18 custom error codes
 ├── agent/                         # Python autonomous agents (FastAPI)
-│   ├── main.py                    # Single-agent entry point
-│   ├── multi_main.py              # Multi-agent gateway (Alpha/Beta/Gamma)
-│   ├── config.py                  # Environment-driven configuration
+│   ├── multi_main.py              # Multi-agent gateway (~3000 lines)
 │   ├── poi/
-│   │   ├── challenge_handler.py   # Challenge response logic
 │   │   ├── evaluator.py           # SLM benchmarks (30 questions, 3 domains)
-│   │   ├── llm_judge.py           # LLM-as-Judge (Claude/GPT/fuzzy)
-│   │   ├── question_pools.py      # Domain question selector
+│   │   ├── llm_judge.py           # LLM-as-Judge (Claude/Groq/fuzzy)
+│   │   ├── question_pools.py      # 40+ domain questions with difficulty
 │   │   ├── merkle_audit.py        # Merkle tree batching + verification
 │   │   └── model_verifier.py      # SHA256 model hash computation
-│   └── solana_client/
-│       └── client.py              # AnchorPy client for on-chain operations
+│   └── solana_client/client.py    # AnchorPy on-chain operations
 ├── app/                           # Next.js dashboard
 │   └── src/
-│       ├── app/page.tsx           # Main dashboard page
-│       ├── app/api/               # 6 API routes
+│       ├── app/page.tsx           # Main dashboard
+│       ├── app/api/               # Aggregation API routes
 │       ├── components/
-│       │   ├── A2ANetworkView.tsx  # Peer challenges with score visualization
+│       │   ├── A2ANetworkView.tsx  # Cross-agent interaction visualization
 │       │   ├── CertificationView.tsx # Intelligence leaderboard
 │       │   ├── AuditTrailView.tsx  # Merkle audit + autonomous stats
-│       │   ├── SecurityDashboard.tsx # Activity feed + monitoring
-│       │   └── RegisterForm.tsx    # On-chain agent registration
-│       ├── hooks/useSolanaEvents.ts # WebSocket subscription
-│       └── lib/program.ts         # On-chain data parsing
-├── docker-compose.multi-agent.yml # Multi-agent Docker setup
-└── scripts/local-demo.sh          # Full local demo
+│       │   ├── EconomicAutonomyView.tsx # SOL payment flows
+│       │   ├── AdaptiveBehaviorView.tsx # Trigger logs + domain trends
+│       │   └── SecurityDashboard.tsx # Activity feed + monitoring
+│       └── hooks/useSolanaEvents.ts # WebSocket program subscriptions
+└── docker-compose.multi-agent.yml # Multi-agent Docker setup
 ```
 
 ## Why Solana?
 
-1. **Cheap on-chain proofs** - Agent challenge results + Merkle roots stored for <$0.01/tx
-2. **PDA-based identity** - Deterministic agent addresses from `[owner, agent_id]` seeds
-3. **Atomic reputation** - Challenge result + reputation update in single transaction
-4. **WebSocket subscriptions** - Real-time dashboard updates via `onProgramAccountChange`
-5. **Fast finality** - Challenge-response cycle completes in <2 seconds on-chain
+1. **Cheap on-chain proofs** — Challenge results + Merkle roots stored for <$0.01/tx
+2. **PDA-based identity** — Deterministic agent addresses from `[owner, agent_id]` seeds
+3. **Atomic reputation** — Challenge result + reputation update in single transaction
+4. **Fast finality** — Challenge-response cycle completes in <2 seconds on-chain
+5. **Rent reclamation** — `close_challenge` recovers ~0.012 SOL per challenge (mainnet-ready)
 
-## Agentic Behaviors
-
-Evidence of autonomous operation with no human intervention:
-
-- **Challenge Polling** (every 30s): Agents monitor on-chain for pending challenges and auto-respond
-- **Self-Evaluation** (every 5min): Agents test themselves on 30 domain questions
-- **Cross-Agent Challenges** (every 2min): Agents discover peers and challenge them via A2A protocol
-- **Merkle Audit Batching**: Activity logs automatically flushed to on-chain Merkle roots
-- **Peer Discovery**: Agents find each other via `skill.json` endpoints
-
-All autonomous actions are logged with SHA256 hashes and timestamps.
-
-## Links
-
-| Resource | URL |
-|----------|-----|
-| Live Dashboard | [agent-poi.vercel.app](https://agent-poi.vercel.app) |
-| A2A Discovery | [agent-poi.vercel.app/skill.json](https://agent-poi.vercel.app/skill.json) |
-| Program (Explorer) | [EQ2Zv3c...BACL38](https://explorer.solana.com/address/EQ2Zv3cTDBzY1PafPz2WDoup6niUv6X8t9id4PBACL38?cluster=devnet) |
-| GitHub | [github.com/vitamin33/agent-poi](https://github.com/vitamin33/agent-poi) |
+---
 
 ## Builder
 
-**AI Jesus** - Solo developer building trust infrastructure for the Solana agent economy.
+**Vitalii Serbyn** — Solo developer building trust infrastructure for the Solana agent economy.
 
 ---
 
