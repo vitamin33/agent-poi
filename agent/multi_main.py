@@ -42,7 +42,7 @@ from solana_client import AgentRegistryClient
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-AGENT_VERSION = "4.1.0-adaptive-live"
+AGENT_VERSION = "4.2.0-adaptive-counters"
 CHALLENGE_POLL_INTERVAL = 30
 SELF_EVAL_INTERVAL = 600  # 10 min — frequent enough for live adaptation visibility
 CROSS_AGENT_CHALLENGE_INTERVAL = 300
@@ -196,6 +196,15 @@ class AgentState:
     _urgent_cooldowns: dict = field(default_factory=dict)  # trigger_category -> last_fired_ts
     _hourly_challenge_count: int = 0
     _hourly_challenge_reset_ts: float = 0.0
+    # Running counters — grow independently of capped list sizes
+    counter_activities: int = 0
+    counter_a2a: int = 0
+    counter_on_chain: int = 0
+    counter_evaluations: int = 0
+    counter_economic_txs: int = 0
+    counter_certifications: int = 0
+    counter_adaptive: int = 0
+    counter_cross_challenges: int = 0
 
 
 def _log_activity(state: AgentState, action: str, status: str, details: dict = None):
@@ -210,6 +219,7 @@ def _log_activity(state: AgentState, action: str, status: str, details: dict = N
     activity_str = json.dumps(activity, sort_keys=True)
     activity["hash"] = hashlib.sha256(activity_str.encode()).hexdigest()[:16]
     state.activity_log.append(activity)
+    state.counter_activities += 1
     if len(state.activity_log) > 200:
         state.activity_log.pop(0)
     logger.info(f"[{state.slug}][{activity['hash']}] {action}: {status}")
@@ -240,6 +250,14 @@ def save_state(state: AgentState) -> None:
         "last_reputation": state.last_reputation,
         "adaptive_triggers": state.adaptive_triggers[-50:],
         "hourly_challenge_count": state._hourly_challenge_count,
+        "counter_activities": state.counter_activities,
+        "counter_a2a": state.counter_a2a,
+        "counter_on_chain": state.counter_on_chain,
+        "counter_evaluations": state.counter_evaluations,
+        "counter_economic_txs": state.counter_economic_txs,
+        "counter_certifications": state.counter_certifications,
+        "counter_adaptive": state.counter_adaptive,
+        "counter_cross_challenges": state.counter_cross_challenges,
         "audit_batches": [
             {k: v for k, v in b.items() if k != "entries"}
             for b in (state.audit_batcher.flushed_batches if state.audit_batcher else [])
@@ -273,6 +291,15 @@ def load_state(state: AgentState) -> bool:
         state.last_reputation = data.get("last_reputation", 5000)
         state.adaptive_triggers = data.get("adaptive_triggers", [])
         state._hourly_challenge_count = data.get("hourly_challenge_count", 0)
+        # Restore running counters (fallback to list len for backward compat)
+        state.counter_activities = data.get("counter_activities", len(state.activity_log))
+        state.counter_a2a = data.get("counter_a2a", len(state.a2a_interactions))
+        state.counter_on_chain = data.get("counter_on_chain", sum(1 for i in state.a2a_interactions if i.get("on_chain_tx")))
+        state.counter_evaluations = data.get("counter_evaluations", len(state.evaluation_history))
+        state.counter_economic_txs = data.get("counter_economic_txs", len(state.economic_transactions))
+        state.counter_certifications = data.get("counter_certifications", len(state.certification_history))
+        state.counter_adaptive = data.get("counter_adaptive", len(state.adaptive_triggers))
+        state.counter_cross_challenges = data.get("counter_cross_challenges", len(state.cross_agent_challenges))
         # Restore Merkle audit batches
         saved_batches = data.get("audit_batches", [])
         if saved_batches and state.audit_batcher:
@@ -357,6 +384,7 @@ async def _self_evaluation(state: AgentState):
                     "judge_scores": result.judge_scores,
                 }
                 state.evaluation_history.append(eval_record)
+                state.counter_evaluations += 1
                 if len(state.evaluation_history) > 50:
                     state.evaluation_history.pop(0)
 
@@ -455,6 +483,7 @@ async def _cross_agent_challenges(state: AgentState):
             # -- ADAPTIVE BEHAVIOR: Check if urgent challenge needed --
             urgent, trigger_reason = _should_challenge_urgently(state)
             if urgent:
+                state.counter_adaptive += 1
                 state.adaptive_triggers.append({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "trigger": trigger_reason,
@@ -783,6 +812,9 @@ async def _cross_agent_challenges(state: AgentState):
                 "reward_lamports": CHALLENGE_REWARD_LAMPORTS if reward_tx else 0,
             }
             state.a2a_interactions.append(interaction)
+            state.counter_a2a += 1
+            if interaction.get("on_chain_tx"):
+                state.counter_on_chain += 1
 
             # Merkle audit: log cross-agent challenge
             if state.audit_batcher:
@@ -796,6 +828,7 @@ async def _cross_agent_challenges(state: AgentState):
             if len(state.a2a_interactions) > 100:
                 state.a2a_interactions.pop(0)
 
+            state.counter_cross_challenges += 1
             state.cross_agent_challenges.append({
                 "timestamp": interaction["timestamp"],
                 "target_agent": peer["name"],
@@ -854,6 +887,7 @@ async def _pay_peer(state: AgentState, peer_pubkey_str: str, lamports: int, reas
             "tx": tx_sig,
         }
         state.economic_transactions.append(txn_record)
+        state.counter_economic_txs += 1
         if len(state.economic_transactions) > 200:
             state.economic_transactions.pop(0)
         state.total_sol_sent += lamports
@@ -875,6 +909,7 @@ async def _pay_peer(state: AgentState, peer_pubkey_str: str, lamports: int, reas
                         "tx": tx_sig,
                     }
                     peer_state.economic_transactions.append(recv_record)
+                    peer_state.counter_economic_txs += 1
                     if len(peer_state.economic_transactions) > 200:
                         peer_state.economic_transactions.pop(0)
                     peer_state.total_sol_received += lamports
@@ -1393,8 +1428,8 @@ def create_agent_app(
                 "question_pool": state.question_selector.get_stats() if state.question_selector else None,
             },
             "stats": {
-                "activities_logged": len(state.activity_log),
-                "evaluations_run": len(state.evaluation_history),
+                "activities_logged": state.counter_activities,
+                "evaluations_run": state.counter_evaluations,
                 "reputation": state.agent_info.get("reputation_score", 0) if state.agent_info else 0,
                 "challenges_passed": state.agent_info.get("challenges_passed", 0) if state.agent_info else 0,
                 "challenges_failed": state.agent_info.get("challenges_failed", 0) if state.agent_info else 0,
@@ -1408,7 +1443,7 @@ def create_agent_app(
             "a2a": {
                 "configured_peers": len(state.peers),
                 "online_peers": sum(1 for p in state.peer_registry.values() if p.get("status") == "online"),
-                "total_a2a_interactions": len(state.a2a_interactions),
+                "total_a2a_interactions": state.counter_a2a,
                 "endpoints": ["/status", "/health", "/activity", "/evaluations",
                               "/challenge", "/evaluate/{domain}", "/peers",
                               "/a2a/interactions", "/a2a/info", "/audit",
@@ -1445,7 +1480,7 @@ def create_agent_app(
             "startup_time": state.startup_time.isoformat() if state.startup_time else None,
             "uptime_seconds": (datetime.now(timezone.utc) - state.startup_time).total_seconds()
                 if state.startup_time else 0,
-            "total_activities": len(state.activity_log),
+            "total_activities": state.counter_activities,
             "recent_activities": state.activity_log[-30:],
         }
 
@@ -1536,30 +1571,27 @@ def create_agent_app(
 
     @sub_app.get("/cross-agent-challenges")
     async def get_cross_challenges():
-        total = len(state.cross_agent_challenges)
+        recent_total = len(state.cross_agent_challenges)
         pending = sum(1 for c in state.cross_agent_challenges if c["status"] == "pending")
         return {
             "agent_name": name,
             "summary": {
-                "total_challenges_created": total,
+                "total_challenges_created": state.counter_cross_challenges,
                 "pending": pending,
-                "completed": total - pending,
+                "completed": recent_total - pending,
             },
             "recent_challenges": state.cross_agent_challenges[-20:],
         }
 
     @sub_app.get("/a2a/interactions")
     async def get_a2a():
-        total = len(state.a2a_interactions)
-        successful = sum(1 for i in state.a2a_interactions if i.get("on_chain_tx"))
-        http_only = total - successful
         return {
             "agent_name": name,
             "a2a_protocol": True,
             "summary": {
-                "total_interactions": total,
-                "successful_on_chain": successful,
-                "http_only": http_only,
+                "total_interactions": state.counter_a2a,
+                "successful_on_chain": state.counter_on_chain,
+                "http_only": state.counter_a2a - state.counter_on_chain,
                 "unique_peers": len(set(i["target"] for i in state.a2a_interactions)) if state.a2a_interactions else 0,
             },
             "recent_interactions": state.a2a_interactions[-20:],
@@ -1773,6 +1805,7 @@ def create_agent_app(
         }
 
         state.certification_history.append(cert_record)
+        state.counter_certifications += 1
         if len(state.certification_history) > 20:
             state.certification_history.pop(0)
 
@@ -1801,7 +1834,7 @@ def create_agent_app(
             "agent_name": name,
             "model": f"{state.model_provider}/{state.model_name}",
             "model_hash": state.agent_info.get("model_hash", "") if state.agent_info else "",
-            "total_certifications": len(state.certification_history),
+            "total_certifications": state.counter_certifications,
             "latest_certification": latest,
             "certification_history": state.certification_history,
         }
@@ -1846,21 +1879,20 @@ def create_agent_app(
         """Unified autonomous behavior statistics — key endpoint for 'Most Agentic' judging."""
         uptime = (datetime.now(timezone.utc) - state.startup_time).total_seconds() if state.startup_time else 0
         audit_stats = state.audit_batcher.get_stats() if state.audit_batcher else {}
-        on_chain_challenges = sum(1 for i in state.a2a_interactions if i.get("on_chain_tx"))
         return {
             "agent_name": name,
             "model": f"{state.model_provider}/{state.model_name}",
             "uptime_hours": round(uptime / 3600, 2),
             "autonomous_behaviors": {
                 "challenges_auto_responded": state.agent_info.get("challenges_passed", 0) + state.agent_info.get("challenges_failed", 0) if state.agent_info else 0,
-                "challenges_created_for_others": len(state.cross_agent_challenges),
-                "on_chain_challenges": on_chain_challenges,
-                "self_evaluations_completed": len(state.evaluation_history),
-                "certifications_completed": len(state.certification_history),
+                "challenges_created_for_others": state.counter_cross_challenges,
+                "on_chain_challenges": state.counter_on_chain,
+                "self_evaluations_completed": state.counter_evaluations,
+                "certifications_completed": state.counter_certifications,
                 "merkle_batches_flushed": audit_stats.get("total_batches_stored", 0),
                 "merkle_entries_logged": audit_stats.get("total_entries_logged", 0),
-                "total_activities_logged": len(state.activity_log),
-                "total_on_chain_transactions": on_chain_challenges + audit_stats.get("total_batches_stored", 0),
+                "total_activities_logged": state.counter_activities,
+                "total_on_chain_transactions": state.counter_on_chain + audit_stats.get("total_batches_stored", 0),
             },
             "background_tasks": {
                 "challenge_polling": {"status": "running", "interval": f"{CHALLENGE_POLL_INTERVAL}s"},
@@ -1869,7 +1901,7 @@ def create_agent_app(
                 "audit_flushing": {"status": "running", "interval": f"{AUDIT_FLUSH_INTERVAL}s"},
             },
             "proof_of_autonomy": {
-                "total_activities_logged": len(state.activity_log),
+                "total_activities_logged": state.counter_activities,
                 "merkle_roots_on_chain": audit_stats.get("total_batches_stored", 0),
                 "verifiable_audit_trail": state.audit_batcher is not None,
                 "cryptographic_hashing": "SHA256",
@@ -1879,14 +1911,14 @@ def create_agent_app(
                 "description": "Agents pay each other SOL for challenge services",
                 "total_sol_sent": state.total_sol_sent / 1_000_000_000,
                 "total_sol_received": state.total_sol_received / 1_000_000_000,
-                "total_transactions": len(state.economic_transactions),
+                "total_transactions": state.counter_economic_txs,
                 "challenge_fee": f"{CHALLENGE_FEE_LAMPORTS / 1_000_000_000} SOL",
                 "quality_reward": f"{CHALLENGE_REWARD_LAMPORTS / 1_000_000_000} SOL",
                 "recent_transactions": state.economic_transactions[-5:],
             },
             "adaptive_behavior": {
                 "description": "Agents adapt strategy based on self-evaluation with rate-limited triggers and reasoning",
-                "total_adaptive_triggers": len(state.adaptive_triggers),
+                "total_adaptive_triggers": state.counter_adaptive,
                 "self_domain_scores": {d: round(sum(s[-3:])/len(s[-3:]), 1) if s else 0 for d, s in state.self_domain_scores.items()},
                 "peer_observed_scores": {d: round(sum(s[-3:])/len(s[-3:]), 1) if s else 0 for d, s in state.domain_scores.items()},
                 "weakest_domain": _get_weakest_domain(state),
@@ -1999,7 +2031,7 @@ def create_agent_app(
             "agent_name": name,
             "description": "Agents autonomously pay each other SOL for challenge services",
             "summary": {
-                "total_transactions": len(state.economic_transactions),
+                "total_transactions": state.counter_economic_txs,
                 "total_sol_sent": round(state.total_sol_sent / 1_000_000_000, 6),
                 "total_sol_received": round(state.total_sol_received / 1_000_000_000, 6),
                 "net_sol": round((state.total_sol_received - state.total_sol_sent) / 1_000_000_000, 6),
@@ -2049,7 +2081,7 @@ def create_agent_app(
                 },
             },
             "adaptive_triggers": {
-                "total": len(state.adaptive_triggers),
+                "total": state.counter_adaptive,
                 "recent": state.adaptive_triggers[-10:],
             },
             "behavior_modes": {
@@ -2213,9 +2245,9 @@ async def gateway_root():
             "status": "running" if st.startup_time else "starting",
             "agent_id": st.agent_info.get("agent_id", -1) if st.agent_info else -1,
             "reputation": st.agent_info.get("reputation_score", 0) if st.agent_info else 0,
-            "activities": len(st.activity_log),
-            "evaluations": len(st.evaluation_history),
-            "a2a_interactions": len(st.a2a_interactions),
+            "activities": st.counter_activities,
+            "evaluations": st.counter_evaluations,
+            "a2a_interactions": st.counter_a2a,
             "online_peers": sum(1 for p in st.peer_registry.values() if p.get("status") == "online"),
         })
     return {
@@ -2281,14 +2313,11 @@ async def network_overview():
     agent_summaries = []
 
     for st in all_states:
-        n_interactions = len(st.a2a_interactions)
-        n_on_chain_challenges = sum(1 for i in st.a2a_interactions if i.get("on_chain_tx"))
         n_merkle_batches = st.audit_batcher.total_batches_stored if st.audit_batcher else 0
-        n_on_chain = n_on_chain_challenges + n_merkle_batches
-        n_evals = len(st.evaluation_history)
-        total_interactions += n_interactions
+        n_on_chain = st.counter_on_chain + n_merkle_batches
+        total_interactions += st.counter_a2a
         total_on_chain += n_on_chain
-        total_evaluations += n_evals
+        total_evaluations += st.counter_evaluations
 
         # Collect recent interactions with source agent tag
         for interaction in st.a2a_interactions[-10:]:
@@ -2309,12 +2338,12 @@ async def network_overview():
             "agent_id": st.agent_info.get("agent_id", -1) if st.agent_info else -1,
             "reputation": st.agent_info.get("reputation_score", 0) if st.agent_info else 0,
             "verified": st.agent_info.get("verified", False) if st.agent_info else False,
-            "a2a_interactions": n_interactions,
+            "a2a_interactions": st.counter_a2a,
             "on_chain_txs": n_on_chain,
             "merkle_batches": n_merkle_batches,
-            "evaluations": n_evals,
+            "evaluations": st.counter_evaluations,
             "avg_eval_score": round(avg_score, 1),
-            "certifications": len(st.certification_history),
+            "certifications": st.counter_certifications,
             "latest_certification": {
                 "level": latest_cert["overall_level"],
                 "score": latest_cert["overall_score"],
@@ -2326,10 +2355,10 @@ async def network_overview():
             "economic": {
                 "sol_sent": round(st.total_sol_sent / 1_000_000_000, 6),
                 "sol_received": round(st.total_sol_received / 1_000_000_000, 6),
-                "transactions": len(st.economic_transactions),
+                "transactions": st.counter_economic_txs,
             },
             "adaptive": {
-                "triggers": len(st.adaptive_triggers),
+                "triggers": st.counter_adaptive,
                 "weakest_domain": _get_weakest_domain(st),
                 "budget_used": st._hourly_challenge_count,
                 "budget_max": MAX_URGENT_PER_HOUR,
@@ -2339,9 +2368,12 @@ async def network_overview():
     # Sort interactions by timestamp (most recent first)
     all_interactions.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
-    total_economic_txs = sum(len(st.economic_transactions) for st in all_states)
+    total_activities = sum(st.counter_activities for st in all_states)
+    total_economic_txs = sum(st.counter_economic_txs for st in all_states)
     total_sol_flow = sum(st.total_sol_sent for st in all_states)
-    total_adaptive = sum(len(st.adaptive_triggers) for st in all_states)
+    total_adaptive = sum(st.counter_adaptive for st in all_states)
+    total_merkle_batches = sum(st.audit_batcher.total_batches_stored if st.audit_batcher else 0 for st in all_states)
+    total_audit_entries = sum(st.audit_batcher.total_entries_logged if st.audit_batcher else 0 for st in all_states)
 
     return {
         "title": "Multi-Agent PoI Network",
@@ -2356,6 +2388,9 @@ async def network_overview():
                 1 for s in all_states
                 if s.agent_info and s.agent_info.get("agent_id", -1) >= 0
             ),
+            "total_activities": total_activities,
+            "total_merkle_batches": total_merkle_batches,
+            "audit_entries": total_audit_entries,
             "economic_transactions": total_economic_txs,
             "total_sol_flow": round(total_sol_flow / 1_000_000_000, 6),
             "adaptive_triggers": total_adaptive,
