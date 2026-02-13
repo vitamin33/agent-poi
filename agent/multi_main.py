@@ -1590,6 +1590,27 @@ def create_agent_app(
                 return {"status": "error", "detail": str(e)[:200]}
         return {"status": "no_client"}
 
+    @sub_app.post("/merkle-test")
+    async def merkle_test():
+        """Diagnostic: try to store a test Merkle root on-chain and return result."""
+        import hashlib
+        info = {
+            "rpc_url": SOLANA_RPC_URL,
+            "has_client": state.client is not None,
+            "has_batcher": state.audit_batcher is not None,
+            "agent_pda": state.audit_batcher.agent_pda if state.audit_batcher else None,
+        }
+        if state.audit_batcher and state.audit_batcher.solana_client:
+            try:
+                test_root = hashlib.sha256(f"test-{time.time()}".encode()).hexdigest()
+                tx = await state.audit_batcher._store_root_on_chain(test_root, 1)
+                info["test_store"] = "SUCCESS"
+                info["tx"] = tx
+            except Exception as e:
+                info["test_store"] = "FAILED"
+                info["error"] = repr(e)[:500]
+        return info
+
     @sub_app.get("/evaluate/domains")
     async def list_domains():
         return {
