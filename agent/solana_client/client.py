@@ -742,6 +742,16 @@ class AgentRegistryClient:
         summary_pda, _ = self._get_merkle_summary_pda(agent_pubkey)
         root_pda, _ = self._get_merkle_root_pda(agent_pubkey, batch_index)
 
+        logger.info(
+            f"store_merkle_audit: agent_pda={agent_pda}, "
+            f"owner={self.keypair.pubkey()}, "
+            f"batch_index={batch_index}, "
+            f"summary={'exists' if summary else 'None'}, "
+            f"summary_pda={summary_pda}, "
+            f"root_pda={root_pda}, "
+            f"entries_count={entries_count}"
+        )
+
         # Convert merkle_root list to bytes array
         root_bytes = bytes(merkle_root)
 
