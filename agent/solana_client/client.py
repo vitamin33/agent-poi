@@ -611,6 +611,12 @@ class AgentRegistryClient:
             nonce = int(time.time())
         challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey(), nonce)
 
+        logger.info(
+            f"create_challenge: target={target_agent_pda}, "
+            f"challenger={self.keypair.pubkey()}, nonce={nonce}, "
+            f"challenge_pda={challenge_pda}"
+        )
+
         async def _do_create():
             return await self.program.rpc["create_challenge"](
                 question,

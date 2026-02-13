@@ -652,6 +652,13 @@ async def _cross_agent_challenges(state: AgentState):
                         # Create on-chain challenge with unique nonce (timestamp-based)
                         challenge_nonce = 0
                         try:
+                            logger.info(
+                                f"[{state.slug}] Creating on-chain challenge: "
+                                f"target_pda={target_on_chain['pda']}, "
+                                f"target_name={target_on_chain.get('name')}, "
+                                f"target_owner={target_on_chain.get('owner', 'unknown')[:20]}, "
+                                f"challenger={state.client.keypair.pubkey()}"
+                            )
                             on_chain_tx, challenge_nonce = await state.client.create_challenge_for_agent(
                                 target_agent_pda=target_pda,
                                 question=question,
@@ -669,6 +676,10 @@ async def _cross_agent_challenges(state: AgentState):
                             })
                         except Exception as e:
                             err_str = str(e)
+                            logger.warning(
+                                f"[{state.slug}] On-chain challenge FAILED: "
+                                f"{type(e).__name__}: {err_str[:200]}"
+                            )
                             interaction["steps"].append({
                                 "step": "on_chain_challenge", "status": "failed",
                                 "error": err_str[:100],
