@@ -97,7 +97,7 @@ PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", f"http://localhost:{GATEWAY_PORT}")
 
 # Persistent state directory (use /data on Render with persistent disk, fallback to local)
 STATE_DIR = Path(os.getenv("STATE_DIR", "/data" if os.path.isdir("/data") else "agent_state"))
-AUDIT_FLUSH_INTERVAL = 300  # seconds
+AUDIT_FLUSH_INTERVAL = 120  # seconds (was 300, reduced for faster on-chain visibility)
 
 
 # ---------------------------------------------------------------------------
@@ -1020,11 +1020,17 @@ def _get_adaptive_difficulty(state: AgentState, domain: str) -> str:
 async def _flush_audit(state: AgentState):
     """Background: periodically flush Merkle audit batches to chain."""
     _log_activity(state, "audit_flush", "started", {"interval": AUDIT_FLUSH_INTERVAL})
-    await asyncio.sleep(180)  # Wait 3 min for first flush (let entries accumulate)
+    await asyncio.sleep(60)  # Wait 1 min for first flush
     while True:
         try:
             if state.audit_batcher:
                 # First, retry any previously failed batches (e.g. from low balance)
+                pending = len(state.audit_batcher.pending_entries)
+                failed = sum(1 for b in state.audit_batcher.flushed_batches if b.get("tx_signature") is None)
+                logger.info(
+                    f"[{state.slug}] Audit cycle: {pending} pending entries, "
+                    f"{failed} failed batches, {state.audit_batcher.total_batches_stored} total"
+                )
                 retried = await state.audit_batcher.retry_failed_batches()
                 if retried > 0:
                     logger.info(f"[{state.slug}] Retried {retried} failed Merkle batches")

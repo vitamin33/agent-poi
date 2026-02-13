@@ -335,33 +335,56 @@ class AuditBatcher:
         return batch_data
 
     async def retry_failed_batches(self) -> int:
-        """Retry storing on-chain for batches that previously failed.
+        """Retry storing on-chain for recent batches that previously failed.
+        Only retries the last MAX_RETRY batches to avoid RPC rate limits.
         Returns number of batches successfully stored."""
         if not self.solana_client or not self.agent_pda:
+            logger.info("No Solana client/agent_pda for Merkle retry")
             return 0
+
+        # Only retry recent batches (last 10) to avoid flooding RPC
+        MAX_RETRY = 10
+        failed_batches = [
+            b for b in self.flushed_batches
+            if b.get("tx_signature") is None
+        ]
+        to_retry = failed_batches[-MAX_RETRY:]
+
+        if not to_retry:
+            return 0
+
+        logger.info(
+            f"Merkle retry: {len(failed_batches)} total failed, "
+            f"retrying last {len(to_retry)}"
+        )
 
         retried = 0
         consecutive_failures = 0
-        for batch in self.flushed_batches:
-            if batch.get("tx_signature") is not None:
-                continue  # Already has on-chain tx
+        for batch in to_retry:
             try:
                 tx_sig = await self._store_root_on_chain(
                     batch["merkle_root"], batch["entries_count"]
                 )
                 batch["tx_signature"] = tx_sig
                 batch["on_chain"] = True
-                self._save_batch(batch)  # Update local storage
+                self._save_batch(batch)
                 retried += 1
                 consecutive_failures = 0
                 logger.info(
-                    f"Retried batch {batch['batch_index']}: tx={tx_sig}"
+                    f"Merkle retry OK: batch {batch['batch_index']} -> tx={tx_sig}"
                 )
+                import asyncio
+                await asyncio.sleep(2)  # Rate limit between retries
             except Exception as e:
                 consecutive_failures += 1
-                logger.debug(f"Retry failed for batch {batch['batch_index']}: {e}")
+                logger.warning(
+                    f"Merkle retry FAILED: batch {batch['batch_index']}: {e}"
+                )
                 if consecutive_failures >= 3:
-                    break  # Only stop after 3 consecutive failures
+                    logger.warning("Merkle retry: 3 consecutive failures, stopping")
+                    break
+                import asyncio
+                await asyncio.sleep(3)
         return retried
 
     async def _store_root_on_chain(self, merkle_root: str, entries_count: int) -> str:
