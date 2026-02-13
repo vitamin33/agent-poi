@@ -666,16 +666,10 @@ async def _cross_agent_challenges(state: AgentState):
                             })
                         except Exception as e:
                             err_str = str(e)
-                            if "challenge_pda_exists" in err_str:
-                                interaction["steps"].append({
-                                    "step": "on_chain_challenge", "status": "reused_existing",
-                                    "note": "Challenge PDA already exists for this pair",
-                                })
-                            else:
-                                interaction["steps"].append({
-                                    "step": "on_chain_challenge", "status": "failed",
-                                    "error": err_str[:100],
-                                })
+                            interaction["steps"].append({
+                                "step": "on_chain_challenge", "status": "failed",
+                                "error": err_str[:100],
+                            })
 
                         # POST to peer's /challenge/submit -> reputation changes
                         if on_chain_tx:

@@ -134,15 +134,15 @@ class AgentRegistryClient:
     def _get_challenge_pda(self, agent: Pubkey, challenger: Pubkey, nonce: int = 0) -> tuple[Pubkey, int]:
         """Get a challenge PDA.
 
-        Note: The deployed program does NOT include nonce in seeds.
-        One challenge PDA per agent-challenger pair. Nonce is stored in
-        the account data but not part of PDA derivation.
+        Seeds: ["challenge", agent_pda, challenger_pubkey, nonce_le_bytes]
+        Nonce is included in seeds, allowing multiple challenges per pair.
         """
         return Pubkey.find_program_address(
             [
                 b"challenge",
                 bytes(agent),
                 bytes(challenger),
+                nonce.to_bytes(8, byteorder="little"),
             ],
             self.program_id
         )
@@ -607,20 +607,6 @@ class AgentRegistryClient:
         if nonce == 0:
             nonce = int(time.time())
         challenge_pda, _ = self._get_challenge_pda(target_agent_pda, self.keypair.pubkey(), nonce)
-
-        # Check if PDA already exists (one per agent-challenger pair)
-        try:
-            existing = await self.program.account["Challenge"].fetch(challenge_pda)
-            if existing:
-                logger.info(
-                    f"Challenge PDA exists for {target_agent_pda} "
-                    f"(status={existing.status}), skipping on-chain create"
-                )
-                raise RuntimeError("challenge_pda_exists")
-        except Exception as e:
-            if "challenge_pda_exists" in str(e):
-                raise
-            # Account doesn't exist - good, we can create
 
         async def _do_create():
             return await self.program.rpc["create_challenge"](
