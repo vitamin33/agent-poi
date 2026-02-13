@@ -1574,6 +1574,19 @@ def create_agent_app(
             "online_peers": sum(1 for p in state.peer_registry.values() if p.get("status") == "online"),
         }
 
+    @sub_app.post("/refresh")
+    async def refresh_agent_info():
+        """Re-read agent info from on-chain (picks up verified status, etc)."""
+        if state.client and state.agent_info and state.agent_info.get("agent_id", -1) >= 0:
+            try:
+                state.agent_info = await state.client.get_agent(
+                    state.client.keypair.pubkey(), state.agent_info["agent_id"]
+                )
+                return {"status": "refreshed", "verified": state.agent_info.get("verified", False)}
+            except Exception as e:
+                return {"status": "error", "detail": str(e)[:200]}
+        return {"status": "no_client"}
+
     @sub_app.get("/evaluate/domains")
     async def list_domains():
         return {
